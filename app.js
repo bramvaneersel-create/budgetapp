@@ -43,6 +43,7 @@ function defaultState() {
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
     pots: [ { id: 'gez', name: 'Gezamenlijke rekening (extra)', doel: 0, grens: 0, acct: 'spaar', vrij: false },
             { id: 'cap', name: 'Belegging/Capex', doel: 0, grens: 0, acct: 'spaar', vrij: false }, { ...KAS } ],
+    extraInc: [],  // overige inkomsten: { id, k (maand 0–11), name, amt }
     moves: [], tx: [], catMap: {}, lastImport: null, demo: false
   };
 }
@@ -50,6 +51,7 @@ function normalize(s) {
   const d = defaultState();
   const o = Object.assign(d, s, { settings: Object.assign(d.settings, s.settings) });
   if (!o.pots.some(p => p.sys === 'kas')) o.pots.push({ ...KAS });
+  if (!Array.isArray(o.extraInc)) o.extraInc = [];
   return o;
 }
 function load() {
@@ -104,6 +106,7 @@ function periodOf(P, dt) {
 function plan() {
   const t = { inkomen: z12(), vast: z12(), sparen: z12(), overboeking: z12(), dd: z12(), dg: z12() };
   for (const l of S.lines) if (!l.rest) for (let k = 0; k < 12; k++) t[l.type][k] += +l.m[k] || 0;
+  t.extra = z12(); for (const e of S.extraInc) if (e.k >= 0 && e.k < 12) { t.extra[e.k] += +e.amt || 0; t.inkomen[e.k] += +e.amt || 0; }
   for (const d of S.dyme) for (let k = 0; k < 12; k++) { t.dd[k] += +d.doel[k] || 0; t.dg[k] += +d.grens[k] || 0; }
   const vp = S.pots.filter(p => p.vrij);
   t.potDoel = sum(vp.map(p => p.doel)); t.potGrens = sum(vp.map(p => +p.grens || +p.doel));
@@ -453,20 +456,26 @@ function renderBudget(m) {
     const startS = m.periodStart[k], opn = m.opn[k], uit = m.spaarUitg[k];
     const ruimte = m.pl.vrij[k] - m.pl.dd[k], jb = m.potVrijK[k], besch = ruimte - jb - opn;
     const perPot = S.pots.filter(x => x.acct === 'spaar' && !x.sys).map(x => [x.name, sum(S.moves.filter(mv => mv.kind === 'uitgave' && mv.pot === x.id && fromIso(mv.date) >= p.start && fromIso(mv.date) <= p.end).map(mv => mv.amt))]).filter(x => x[1]);
-    h += `<div class="card"><div class="lbl">Deze periode · ${dShort(p.start)} – ${dShort(p.end)}</div>
-      <div class="sub" style="margin-bottom:6px">Begint opnieuw bij elke salarisdag</div>
-      <div class="kv"><span>Startsaldo spaarrekening <small class="sub">(${dShort(p.start)}, na storting)</small></span><b>${eur(startS)}</b></div>
-      <div class="kv"><span>Extra opgenomen van spaarrekening</span><b class="${opn ? 'neg' : ''}">−${eur(opn)}</b></div>
-      <div class="kv"><span>Extra uitgaven spaarrekening</span><b>−${eur(uit)}</b></div>
-      ${perPot.map(([n, v]) => `<div class="kv sub-kv"><span>${esc(n)}</span><span>${eur(v)}</span></div>`).join('')}
-      <div class="kv total"><span>Saldo spaarrekening nu</span><b>${eur(startS - opn - uit + (m.kas[k] || 0))}</b></div></div>
-      <div class="card"><div class="lbl">Vrije ruimte beschikbaar</div>
+    const nk = k + 1, nDate = nk < 12 ? m.P[nk].start : payday(m.y + 1, 0), dep = m.cur < 0 ? m.pl.sparen[0] : nk < 12 ? m.pl.sparen[nk] : m.pl.sparen[0];
+    const saldoNu = startS - opn - uit + (m.kas[k] || 0), naStorting = m.cur < 0 ? m.start : saldoNu + dep;
+    h += `<div class="card"><div class="lbl">Vrije ruimte beschikbaar · ${dShort(p.start)} – ${dShort(p.end)}</div>
       <div class="big ${besch >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 8px">${eurS(besch)}</div>
       <div class="kv"><span>Vrije ruimte deze periode</span><b>${eur(m.pl.vrij[k])}</b></div>
       <div class="kv"><span>Maandbudgetten (in Dyme)</span><b>−${eur(m.pl.dd[k])}</b></div>
       <div class="kv"><span>Jaarbudgetten uitgegeven</span><b>−${eur(jb)}</b></div>
       <div class="kv"><span>Extra opgenomen</span><b>−${eur(opn)}</b></div>
+      <div class="divider"></div>
+      <div class="kv"><span>Storting ${MONF[nDate.getMonth()]} <small class="sub">(${dLong(nDate)})</small></span><b class="pos">+${eur(dep)}</b></div>
+      <div class="kv total"><span>Saldo spaarrekening na storting</span><b>${eur(naStorting)}</b></div>
       <p class="hint" style="margin:8px 0 0">Plus: je hebt nog ruimte voor jaarbudgetten. Min: je hebt deze periode meer uitgegeven dan je vrije ruimte.</p></div>`;
+    h += `<div class="card"><div class="lbl">Spaarrekening deze periode</div>
+      <div class="sub" style="margin-bottom:6px">Begint opnieuw bij elke salarisdag</div>
+      <div class="kv"><span>Startsaldo spaarrekening <small class="sub">(${dShort(p.start)}, na storting)</small></span><b>${eur(startS)}</b></div>
+      <div class="kv"><span>Extra opgenomen van spaarrekening</span><b class="${opn ? 'neg' : ''}">−${eur(opn)}</b></div>
+      <div class="kv"><span>Extra uitgaven spaarrekening</span><b>−${eur(uit)}</b></div>
+      ${perPot.map(([n, v]) => `<div class="kv sub-kv"><span>${esc(n)}</span><span>${eur(v)}</span></div>`).join('')}
+      ${m.kas[k] ? `<div class="kv"><span>Kasverschil</span><b>${eurS(m.kas[k])}</b></div>` : ''}
+      <div class="kv total"><span>Saldo spaarrekening nu</span><b>${eur(saldoNu)}</b></div></div>`;
   } else {
     const st = status(m.vrijExp, m.pl.jaarDoel, m.pl.jaarGrens);
     h += `<div class="card"><div class="row"><div class="lbl">Prognose vrije ruimte ${m.y}</div><span class="chip ${st}">${STATUS_TXT[st]}</span></div>
@@ -486,16 +495,22 @@ function renderBudget(m) {
 
   // Maandplan
   const pm = ui.planMonth ?? Math.min(Math.max(m.cur, 0), 11), pl = m.pl;
-  const grp = (t, label) => {
-    const g = S.lines.filter(l => l.type === t); if (!g.length) return '';
-    return `<div class="list-btn plain grp"><span>${label}</span><span class="r">${eur(pl[t][pm])}</span></div>` +
-      g.map(l => `<button class="list-btn sub-row" data-act="edit-line" data-id="${l.id}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}</span><span class="r${l.rest && pl.restM[pm] < 0 ? ' neg' : ''}">${eur(l.rest ? pl.restM[pm] : l.m[pm])}</span></button>`).join('');
-  };
+  const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="edit-line" data-id="${l.id}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}</span><span class="r${l.rest && pl.restM[pm] < 0 ? ' neg' : ''}">${sign}${eur(l.rest ? pl.restM[pm] : l.m[pm])}</span></button>`).join('');
+  const grp = (t, label) => S.lines.some(l => l.type === t) ? `<div class="list-btn plain grp"><span>${label}</span><span class="r">−${eur(pl[t][pm])}</span></div>` + rows(t, '') : '';
+  const ex = S.extraInc.filter(e => e.k === pm);
+  const uitTot = pl.vast[pm] + pl.overboeking[pm] + pl.sparen[pm];
   const onder = pl.vrij[pm] - pl.dd[pm] - pl.lopDoel / 12;
   h += `<h2>Maandplan</h2><div class="month-chips">${MON.map((n, i) => `<button data-act="plan-month" data-k="${i}" class="${i === pm ? 'on' : ''}">${n}</button>`).join('')}</div>
-    <div class="card tight">${grp('inkomen', 'Inkomen')}${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}
-    <div class="list-btn plain grp total"><span>Vrije ruimte</span><span class="r">${eur(pl.vrij[pm])}</span></div>
-    <div class="list-btn plain sub-row"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
+    <div class="section-head in"><span>Inkomsten ${MONF[pm]}</span><b>+${eur(pl.inkomen[pm])}</b></div>
+    <div class="card tight">${rows('inkomen', '')}
+      <div class="list-btn plain grp"><span>Overige inkomsten</span><span class="r">${eur(pl.extra[pm])}</span></div>
+      ${ex.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('')}
+      <button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button></div>
+    <div class="section-head out"><span>Uitgaven ${MONF[pm]}</span><b>−${eur(uitTot)}</b></div>
+    <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
+    <div class="section-head"><span>Vrije ruimte ${MONF[pm]}</span><b>${eur(pl.vrij[pm])}</b></div>
+    <div class="card tight">
+    <div class="list-btn plain sub-row" style="border-top:0"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
     ${pl.lopDoel ? `<div class="list-btn plain sub-row"><span>Jaarbudgetten lopende rekening (÷12)</span><span class="r">${eur(pl.lopDoel / 12)}</span></div>` : ''}
     <div class="list-btn plain grp"><span>Blijft op lopende rekening</span><span class="r ${onder >= 0 ? 'pos' : 'neg'}">${eurS(onder)}</span></div></div>
     <p class="hint">Tik op een post om de bedragen per maand aan te passen.</p>
@@ -669,6 +684,16 @@ function sheetPot(id) {
     ${id ? `<button class="btn danger" data-act="del-pot" data-id="${p.id}">Verwijderen</button>` : ''}`}`);
 }
 
+function sheetExtra(id) {
+  const e = S.extraInc.find(x => x.id === id) || { id: '', k: ui.planMonth ?? Math.min(Math.max(model().cur, 0), 11), name: '', amt: '' };
+  openSheet(id ? 'Overige inkomsten' : 'Overige inkomsten toevoegen', `
+    <label class="fld"><span>Omschrijving</span><input id="e-name" value="${esc(e.name)}" placeholder="bijv. teruggave belasting" maxlength="60"></label>
+    <div class="fld-row"><label class="fld"><span>Maand</span><select id="e-k">${MONF.map((n, i) => `<option value="${i}"${i === e.k ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label class="fld"><span>Bedrag (netto)</span><input id="e-amt" inputmode="decimal" value="${e.amt === '' ? '' : numIn(e.amt)}" placeholder="€ 0"></label></div>
+    <p class="hint">Telt mee als inkomen in die maand. Via de restpost gaat het automatisch naar je spaarrekening.</p>
+    <button class="btn primary" data-act="save-extra" data-id="${e.id}">Opslaan</button>
+    ${id ? `<button class="btn danger" data-act="del-extra" data-id="${e.id}">Verwijderen</button>` : ''}`);
+}
 function dymeCats() { const c = {}; for (const t of S.tx) { c[t.cat] = c[t.cat] || { n: 0, amt: 0 }; c[t.cat].n++; c[t.cat].amt += t.amt; } return c; }
 function mapOptions(sel) {
   return `<option value=""${!sel ? ' selected' : ''}>— Kies —</option><option value="__ignore"${sel === '__ignore' ? ' selected' : ''}>Negeren</option>` +
@@ -866,7 +891,8 @@ function doImport(newMap) {
 /* Budget-import. Kolommen: Soort; Categorie; Rekening; Doel; Grens; jan … dec; Dyme-categorieën */
 function typeFromText(s) {
   s = String(s).toLowerCase().trim();
-  if (/inkom|salaris|loon/.test(s)) return 'inkomen';
+  if (/overig|extra/.test(s) && /inkom/.test(s)) return 'extra';
+  if (/inkom|salaris|loon|bonus/.test(s)) return 'inkomen';
   if (/dyme|variab/.test(s)) return 'dyme';
   if (/jaarbudget/.test(s)) return 'pot-vrij';
   if (/spaarpost|spaarrek|losse/.test(s)) return 'pot-spaar';
@@ -883,14 +909,16 @@ async function onBudgetFile(file) {
       doel: guessCol(hdr, /^doel|richtlijn|^budget|^bedrag/), grens: guessCol(hdr, /grens|max|limiet/), dyme: guessCol(hdr, /dyme/),
       mon: MON.map(n => guessCol(hdr, new RegExp('^' + n))) };
     if (c.soort < 0 || c.naam < 0) return toast('Kolommen Soort en Categorie niet gevonden — gebruik het sjabloon');
-    const lines = [], dyme = [], pots = [], skip = [];
+    const lines = [], dyme = [], pots = [], extra = [], skip = [];
     const val = (r, i) => i >= 0 ? parseNum(r[i]) : NaN;
     for (const r of rows.slice(1)) {
       const t = typeFromText(r[c.soort]), name = String(r[c.naam] ?? '').trim();
       if (!t || !name) { if (name) skip.push(name); continue; }
       const doel = val(r, c.doel), grens = val(r, c.grens), months = c.mon.map(i => val(r, i));
       const hasMonths = months.some(v => !isNaN(v));
-      if (t === 'dyme') {
+      if (t === 'extra') {
+        months.forEach((v, k) => { if (!isNaN(v) && v) extra.push({ id: uid(), k, name, amt: Math.abs(v) }); });
+      } else if (t === 'dyme') {
         const dJ = isNaN(doel) ? 0 : Math.abs(doel), gJ = isNaN(grens) ? dJ : Math.abs(grens);
         const dM = hasMonths ? months.map(v => isNaN(v) ? 0 : Math.abs(v)) : Array(12).fill(dJ / 12);
         const sc = sum(dM) ? gJ / sum(dM) : 1;
@@ -907,16 +935,17 @@ async function onBudgetFile(file) {
       }
     }
     if (!lines.length && !dyme.length) return toast('Geen budgetregels gevonden');
-    IMP = { budget: { lines, dyme, pots } };
+    IMP = { budget: { lines, dyme, pots, extra } };
     const t = { inkomen: z12(), vast: z12(), sparen: z12(), overboeking: z12() };
     for (const l of lines) for (let k = 0; k < 12; k++) t[l.type][k] += l.m[k];
+    for (const e of extra) t.inkomen[e.k] += e.amt;
     const vrijPotDoel = sum(pots.filter(p => p.vrij).map(p => p.doel)), dymeDoel = sum(dyme.map(d => sum(d.doel)));
     const hasRest = lines.some(l => l.rest);
     if (hasRest) for (let k = 0; k < 12; k++) t.sparen[k] += t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - (sum(dyme.map(d => d.doel[k])) + vrijPotDoel / 12);
     const vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k]);
     const suggestY = today().getMonth() >= 9 ? today().getFullYear() + 1 : today().getFullYear();
     openSheet('Budget inlezen', `<div class="card tight">
-      <div class="kv"><span>Inkomen</span><b>${eur(sum(t.inkomen))}</b></div>
+      <div class="kv"><span>Inkomen${extra.length ? ` (incl. ${extra.length}× overige inkomsten)` : ''}</span><b>${eur(sum(t.inkomen))}</b></div>
       <div class="kv"><span>Vaste lasten</span><b>${eur(sum(t.vast))}</b></div>
       <div class="kv"><span>Overboekingen</span><b>${eur(sum(t.overboeking))}</b></div>
       <div class="kv"><span>Naar spaarrekening${hasRest ? ' (incl. restpost)' : ''}</span><b>${eur(sum(t.sparen))}</b></div>
@@ -940,13 +969,15 @@ function exportBudgetRows() {
   const T = { inkomen: 'Inkomen', vast: 'Vast', sparen: 'Sparen', overboeking: 'Overboeking' };
   return [...S.lines.map(l => l.rest ? ['Sparen (rest)', l.name, '', '', '', ...Array(12).fill(''), ''] : [T[l.type], l.name, '', '', '', ...l.m, '']),
     ...S.dyme.map(d => ['Dyme', d.name, '', sum(d.doel), sum(d.grens), ...d.doel, Object.entries(S.catMap).filter(([, v]) => v === d.id).map(([c]) => c).join('|')]),
+    ...S.extraInc.map(e => ['Overige inkomsten', e.name, '', '', '', ...MON.map((_, k) => k === e.k ? e.amt : ''), '']),
     ...S.pots.filter(p => !p.sys).map(p => [p.vrij ? 'Jaarbudget' : 'Spaarpost', p.name, p.acct === 'lopend' ? 'Lopende rekening' : 'Spaarrekening', +p.doel || '', +p.grens || '', ...Array(12).fill(''), ''])];
 }
 function templateCsv() {
   const e = Array(12).fill('');
   return budgetCsv([
     ['Inkomen', 'Salaris', '', '', '', ...Array(12).fill(3200), ''],
-    ['Inkomen', 'Vakantiegeld', '', '', '', '', '', '', '', 2000, '', '', '', '', '', '', '', ''],
+    ['Inkomen', 'Bonussen', '', '', '', '', '', '', '', 2000, '', '', '', '', '', '', '', ''],
+    ['Overige inkomsten', 'Teruggave belasting', '', '', '', '', '', '', '', '', '', 450, '', '', '', '', '', ''],
     ['Vast', 'Zorgverzekering', '', 150, '', ...e, ''],
     ['Overboeking', 'Gezamenlijke rekening', '', 1100, '', ...e, ''],
     ['Overboeking', 'Beleggen', '', 300, '', ...e, ''],
@@ -975,7 +1006,7 @@ function demo() {
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   S = defaultState(); S.demo = true; S.settings.year = y; S.settings.startSavings = 7000;
   const L = (type, name, m) => ({ id: uid(), type, name, m: Array.isArray(m) ? m : Array(12).fill(m) });
-  S.lines = [L('inkomen', 'Salaris', 3300), L('inkomen', 'Vakantiegeld', [0, 0, 0, 0, 1900, 0, 0, 0, 0, 0, 0, 0]),
+  S.lines = [L('inkomen', 'Salaris', 3300), L('inkomen', 'Bonussen', [0, 0, 0, 0, 1900, 0, 0, 0, 0, 0, 0, 0]),
     L('vast', 'Zorgverzekering', 150), L('vast', 'Abonnementen', 60), L('vast', 'Auto', 120),
     L('overboeking', 'Gezamenlijke rekening', 1100), L('overboeking', 'Beleggen', 300),
     L('sparen', 'Spaarrekening', [850, 850, 850, 850, 2750, 850, 850, 850, 850, 850, 850, 850]), L('sparen', 'Huis', 300)];
@@ -1058,6 +1089,15 @@ const ACT = {
   },
   'del-line': el => { S.lines = S.lines.filter(l => l.id !== el.dataset.id); save(); closeSheet(); render(); },
   'edit-dyme': el => sheetDyme(el.dataset.id),
+  'edit-extra': el => sheetExtra(el.dataset.id),
+  'save-extra': el => {
+    const name = val('#e-name').trim() || 'Overige inkomsten', amt = parseNum(val('#e-amt')), k = +val('#e-k');
+    if (isNaN(amt)) return toast('Vul een bedrag in');
+    const e = S.extraInc.find(x => x.id === el.dataset.id);
+    if (e) Object.assign(e, { name, amt: r2(amt), k }); else S.extraInc.push({ id: uid(), name, amt: r2(amt), k });
+    ui.planMonth = k; save(); closeSheet(); render(); toast('Opgeslagen');
+  },
+  'del-extra': el => { S.extraInc = S.extraInc.filter(x => x.id !== el.dataset.id); save(); closeSheet(); render(); },
   'dyme-spread': () => {
     const d = parseNum(val('#d-doel-j')), g = parseNum(val('#d-grens-j'));
     if (!isNaN(d)) $$('[data-grid="doel"]').forEach(i => { i.value = numIn(d / 12); });
@@ -1093,7 +1133,7 @@ const ACT = {
   'imp-next': () => sheetDymeCats(),
   'imp-do': () => { const nm = {}; $$('[data-map]').forEach(s => { if (s.value) nm[s.dataset.map] = s.value; }); doImport(nm); },
   'budget-do': () => {
-    const { lines, dyme, pots } = IMP.budget, yr = parseInt(val('#b-year'), 10);
+    const { lines, dyme, pots, extra } = IMP.budget, yr = parseInt(val('#b-year'), 10);
     if (S.demo) { S = defaultState(); }
     // bestaande ids behouden (op naam), zodat mutaties en Dyme-koppelingen blijven kloppen
     const byName = (arr, n) => arr.find(x => normName(x.name) === normName(n));
@@ -1103,7 +1143,7 @@ const ACT = {
     for (const p of keepPots) if (!pots.some(x => x.id === p.id)) pots.push(p);
     for (const p of [{ id: 'gez', name: 'Gezamenlijke rekening (extra)' }, { id: 'cap', name: 'Belegging/Capex' }]) if (!pots.some(x => normName(x.name) === normName(p.name))) pots.push({ ...p, doel: 0, grens: 0, acct: 'spaar', vrij: false });
     pots.sort((a, b) => (a.sys ? 1 : 0) - (b.sys ? 1 : 0) || (b.vrij - a.vrij));
-    S.lines = lines; S.dyme = dyme; S.pots = pots; S.baseline = null;
+    S.lines = lines; S.dyme = dyme; S.pots = pots; S.extraInc = extra || []; S.baseline = null;
     for (const d of dyme) for (const c of d.cats || []) S.catMap[c] = d.id;
     if (yr > 2000 && yr < 2100) S.settings.year = yr;
     IMP = null; save(); closeSheet(); ui.tab = 'budget'; ui.budMode = 'jaar'; render(); toast('Budget ingelezen');

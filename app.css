@@ -221,3 +221,10 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .legend i.l-base{height:0;width:14px;border-top:2px dotted var(--faint);border-radius:0;vertical-align:3px}
 .legend i.l-real{height:3px;width:14px;background:var(--ok);vertical-align:3px}
 .legend i.l-fcl{height:0;width:14px;border-top:2px dashed var(--ok);border-radius:0;vertical-align:3px}
+
+/* v6 */
+.section-head{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+.section-head b{font-size:15px;color:var(--ink);text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
+.section-head.in span{color:var(--ok)} .section-head.out span{color:var(--over)}
+.list-btn.add-row{color:var(--accent);font-weight:600}
+.list-btn.add-row .r::after{content:""}
