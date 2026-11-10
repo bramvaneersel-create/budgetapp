@@ -228,3 +228,13 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .section-head.in span{color:var(--ok)} .section-head.out span{color:var(--over)}
 .list-btn.add-row{color:var(--accent);font-weight:600}
 .list-btn.add-row .r::after{content:""}
+
+/* v8 */
+.next-period{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.np-date{font-size:20px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.np-days{text-align:center;background:var(--accent);color:var(--accent-ink);border-radius:16px;padding:10px 14px;min-width:88px}
+.np-days b{display:block;font-size:40px;line-height:1;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.np-days span{font-size:12px;font-weight:700}
+.seg.small{margin:0 0 8px}
+.seg.small button{font-size:13px;padding:6px 0}
+.divider + .kv{border-top:0}

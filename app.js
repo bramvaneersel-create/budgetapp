@@ -254,6 +254,12 @@ function model() {
   return { y, P, T, cur, inYear, frac, elapsed, pl, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
     potSpent, potRem, predOpn, predLop, predSpaar, result, ingEnd, start, eind, savingsNow, rente, renteA, planEind: pb, planRente: prente,
     planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pl.sparen.slice(1)),
+    ...(() => {
+      const beleg = sum(S.lines.filter(l => l.type === 'overboeking' && /beleg|asn|invest|etf/i.test(l.name)).map(l => sum(l.m)));
+      const ap = S.pots.find(p => !p.vrij && !p.sys && /huis|aflos|hypothe/i.test(p.name));
+      const aflos = ap ? (potSpent[ap.id] || 0) + (potRem[ap.id] || 0) : 0;
+      return { beleg, aflos, aflosNaam: ap ? ap.name : '', totaalGespaard: (bal - start) + beleg + aflos };
+    })(),
     nAvg, avgTot, avgDy, avgPot, scale, topDown, bottomUp, vrijRem, fcPath, planPath, basePath, periodStart, potVrijK };
 }
 
@@ -389,26 +395,30 @@ function renderDash(m) {
       <button class="btn" data-act="demo">Demo bekijken</button></div>`;
   }
   h += reminderHtml(m) + actionsHtml(false);
+  {
+    const nxt = m.inYear ? addDays(m.P[m.cur].end, 1) : m.cur < 0 ? m.P[0].start : payday(m.y + 1, 0), d = dayDiff(m.T, nxt);
+    h += `<div class="card next-period"><div><div class="lbl">${m.cur < 0 ? `Boekjaar ${m.y} begint` : 'Nieuwe periode'}</div>
+      <div class="np-date">${dLong(nxt)}</div><div class="sub">${m.cur < 0 ? 'Eerste salaris' : 'Volgend salaris'}</div></div>
+      <div class="np-days"><b>${d}</b><span>${d === 1 ? 'dag' : 'dagen'}</span></div></div>`;
+  }
   // periode
   if (m.inYear) {
     const p = m.P[m.cur], nxt = addDays(p.end, 1), daysTo = dayDiff(m.T, nxt);
     const spent = m.dyAct[m.cur], doel = m.pl.dd[m.cur], grens = m.pl.dg[m.cur], left = doel - spent;
     h += `<div class="card">
-      <div class="period-head"><div><div class="lbl">Deze periode · maandbudgetten</div><div style="font-weight:600">${dShort(p.start)} – ${dShort(p.end)}</div></div>
-        <div class="countdown"><b>${daysTo}</b><span>${daysTo === 1 ? 'dag' : 'dagen'} tot<br>salaris</span></div></div>
+      <div class="period-head"><div><div class="lbl">Deze periode · maandbudgetten</div><div style="font-weight:600">${dShort(p.start)} – ${dShort(p.end)}</div></div></div>
       <div class="spent-line"><span class="mid money">${eur(spent)}</span><span class="sub">van ${eur(doel)} · grens ${eur(grens)}</span></div>
       ${bar(spent, doel, grens, doel * m.frac)}
       <div class="sub" style="margin-top:10px">${left >= 0 ? `Nog <b class="pos">${eur(left)}</b> tot je doel · ca. ${eur(left / Math.max(1, daysTo))} per dag`
         : spent <= grens ? `<b class="wrn">${eur(-left)}</b> boven doel · nog ${eur(grens - spent)} tot je grens` : `<b class="neg">${eur(spent - grens)}</b> boven je grens`}</div>
-      <div class="hint" style="margin:8px 0 0">Volgend salaris: ${dLong(nxt)}${!m.hasData ? ' · nog geen Dyme-gegevens' : ''}</div></div>`;
-  } else {
-    const nxt = m.cur < 0 ? m.P[0].start : payday(m.y + 1, 0), d = dayDiff(m.T, nxt);
-    h += `<div class="card"><div class="lbl">${m.cur < 0 ? `Boekjaar ${m.y} begint` : `Boekjaar ${m.y} is afgelopen`}</div><div class="mid">${dLong(nxt)}</div><div class="sub">${m.cur < 0 ? `Eerste salaris over ${d} dagen` : 'Start een nieuw boekjaar via Instellingen'}</div></div>`;
+      ${!m.hasData ? '<div class="hint" style="margin:8px 0 0">Nog geen Dyme-gegevens voor deze periode</div>' : ''}</div>`;
+  } else if (m.cur > 11) {
+    h += `<div class="card"><div class="lbl">Boekjaar ${m.y} is afgelopen</div><div class="sub">Start een nieuw boekjaar via Instellingen</div></div>`;
   }
   // prognose
   const diff = m.eind - m.planEind;
   h += `<div class="card">
-    <div class="row"><div class="lbl">Prognose spaarrekening 31 december</div><button class="link" data-act="info-prognose">Hoe?</button></div>
+    <div class="row"><div class="lbl">Prognose spaarrekening eind budgetjaar</div><button class="link" data-act="info-prognose">Hoe?</button></div>
     <div class="big" style="margin:6px 0 2px">${eur(m.eind)}</div>
     <div class="sub">${m.band > 1 ? `Waarschijnlijk tussen ${eur(m.eind - m.band)} en ${eur(m.eind + m.band)}` : 'Op basis van je budget'}</div>
     <div class="divider"></div>
@@ -416,10 +426,14 @@ function renderDash(m) {
     <div class="kv"><span>Volgens plan</span><b>${eur(m.planEind)}</b></div>
     <div class="kv"><span>Verschil met plan</span><b class="${diff >= 0 ? 'pos' : 'neg'}">${eurS(diff)}</b></div>
     <div class="kv"><span>Verwacht over op lopende rekening</span><b>${eur(m.ingEnd)}</b></div>
+    <div class="divider"></div>
+    <div class="kv"><span>Groei spaarrekening</span><b class="${m.eind - m.start >= 0 ? '' : 'neg'}">${eurS(m.eind - m.start)}</b></div>
+    ${m.beleg ? `<div class="kv"><span>Naar beleggingsrekening</span><b>+${eur(m.beleg)}</b></div>` : ''}
+    ${m.aflos ? `<div class="kv"><span>Extra aflossing (${esc(m.aflosNaam)})</span><b>+${eur(m.aflos)}</b></div>` : ''}
+    <div class="kv total"><span>Totaal gespaard dit jaar</span><b class="${m.totaalGespaard >= 0 ? 'pos' : 'neg'}">${eurS(m.totaalGespaard)}</b></div>
     ${m.nAvg ? `<div class="kv"><span>Gem. vrije uitgaven per maand</span><b class="${m.avgTot > sum(m.pl.budgetM) / 12 + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(sum(m.pl.budgetM) / 12)}</small></b></div>` : ''}</div>`;
   h += `<div class="card"><div class="row"><div class="lbl">Uitgaven maandbudgetten per maand</div><span class="sub" style="font-size:12px">tik op een maand</span></div>
     ${chart(m)}<div class="legend"><span><i class="l-act"></i>werkelijk</span><span><i class="l-fc"></i>verwacht</span><span><i class="l-doel"></i>doel</span><span><i class="l-grens"></i>grens</span></div>${chartDetail(m)}</div>`;
-  h += jaarBudgetsHtml(m, true);
   return h;
 }
 
@@ -431,10 +445,15 @@ function jaarBudgetsHtml(m, compact) {
     <div class="bar"><div class="fill prog" style="width:${pct}%"></div></div>
     <div class="meta"><span>${dShort(m.P[0].start)}</span><span>${m.inYear ? 'vandaag ' + dShort(m.T) : ''}</span><span>31 dec</span></div>
     <div class="legend" style="margin-top:8px"><span><i class="l-pace"></i>zo ver is het jaar — vergelijk met de balk</span></div></div>`;
-  h += `<div class="card tight">` + S.dyme.map(d => {
-    const doel = sum(d.doel), grens = sum(d.grens), s = m.dyYtd[d.id] || 0;
-    return budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'maand', act: compact ? null : 'edit-dyme', id: d.id });
-  }).join('') + vrijPots().map(p => budgetRow(p.name, m.potSpent[p.id] || 0, +p.doel, +p.grens || +p.doel, { pace: (+p.doel) * pace, act: compact ? null : 'edit-pot', id: p.id })).join('') + `</div>`;
+  const items = [
+    ...S.dyme.map(d => { const doel = sum(d.doel), grens = sum(d.grens), s = m.dyYtd[d.id] || 0;
+      return { name: d.name, doel, html: budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'maand', act: compact ? null : 'edit-dyme', id: d.id }) }; }),
+    ...vrijPots().map(p => ({ name: p.name, doel: +p.doel || 0, html: budgetRow(p.name, m.potSpent[p.id] || 0, +p.doel, +p.grens || +p.doel, { pace: (+p.doel) * pace, act: compact ? null : 'edit-pot', id: p.id }) }))];
+  const so = S.settings.sort || 'groot';
+  if (so === 'naam') items.sort((a, b) => a.name.localeCompare(b.name, 'nl', { sensitivity: 'base' }));
+  else if (so === 'groot') items.sort((a, b) => b.doel - a.doel);
+  if (!compact) h += `<div class="seg small"><button data-act="sort" data-s="groot" class="${so === 'groot' ? 'on' : ''}">Omvang</button><button data-act="sort" data-s="naam" class="${so === 'naam' ? 'on' : ''}">A–Z</button><button data-act="sort" data-s="soort" class="${so === 'soort' ? 'on' : ''}">Soort</button></div>`;
+  h += `<div class="card tight">` + items.map(i => i.html).join('') + `</div>`;
   const others = spaarPosts();
   if (others.length) h += `<h2>Overige uitgaven spaarrekening ${m.y}</h2><div class="card tight">` + others.map(p => {
     const s = m.potSpent[p.id] || 0;
@@ -1088,6 +1107,7 @@ const ACT = {
   'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
+  sort: el => { S.settings.sort = el.dataset.s; save(); render(); },
   'plan-month': el => { ui.planMonth = +el.dataset.k; render(); },
   'edit-line': el => sheetLine(el.dataset.id),
   'range-apply': el => {
