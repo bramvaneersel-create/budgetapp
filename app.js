@@ -694,7 +694,7 @@ function sheetExtra(id) {
     <button class="btn primary" data-act="save-extra" data-id="${e.id}">Opslaan</button>
     ${id ? `<button class="btn danger" data-act="del-extra" data-id="${e.id}">Verwijderen</button>` : ''}`);
 }
-function dymeCats() { const c = {}; for (const t of S.tx) { c[t.cat] = c[t.cat] || { n: 0, amt: 0 }; c[t.cat].n++; c[t.cat].amt += t.amt; } return c; }
+function dymeCats() { const c = {}; for (const t of S.tx) { c[t.cat] = c[t.cat] || { n: 0, amt: 0, sup: t.sup }; c[t.cat].n++; c[t.cat].amt += t.amt; } return c; }
 function mapOptions(sel) {
   return `<option value=""${!sel ? ' selected' : ''}>— Kies —</option><option value="__ignore"${sel === '__ignore' ? ' selected' : ''}>Negeren</option>` +
     S.dyme.map(d => `<option value="${d.id}"${sel === d.id ? ' selected' : ''}>${esc(d.name)}</option>`).join('');
@@ -702,7 +702,7 @@ function mapOptions(sel) {
 function sheetCatmap() {
   const cats = Object.entries(dymeCats()).sort((a, b) => b[1].amt - a[1].amt);
   openSheet('Dyme-categorieën', `<p class="hint">Koppel elke Dyme-categorie aan een maandbudget. Kies ‘Negeren’ voor inkomsten, overboekingen of uitgaven die je in de app als jaarbudget bijhoudt (zoals vakantie).</p>` +
-    (cats.length ? cats.map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(S.catMap[c])}</select></div>`).join('')
+    (cats.length ? cats.map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.sup && v.sup !== c ? esc(v.sup) + ' · ' : ''}${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(S.catMap[c])}</select></div>`).join('')
       : '<div class="empty">Nog geen transacties ingelezen.</div>') +
     `<button class="btn primary" data-act="save-catmap">Opslaan</button>`, { closeLabel: 'Annuleer' });
 }
@@ -738,7 +738,7 @@ function parseCSV(text) {
   if (f !== '' || row.length) { row.push(f); rows.push(row); }
   return rows.filter(r => r.some(x => String(x).trim() !== ''));
 }
-async function readXlsx(buf) {
+async function readXlsx(buf, wantTx) {
   const u8 = new Uint8Array(buf), dv = new DataView(buf), dec = new TextDecoder();
   let e = -1;
   for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
@@ -762,8 +762,17 @@ async function readXlsx(buf) {
   const tags = (el, t) => [...el.getElementsByTagNameNS('*', t)];
   const ss = []; const sst = await get('xl/sharedStrings.xml');
   if (sst) for (const si of tags(xml(sst), 'si')) ss.push(tags(si, 't').map(x => x.textContent).join(''));
-  const sheet = files['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml' : Object.keys(files).find(k => /^xl\/worksheets\/[^/]+\.xml$/.test(k));
-  if (!sheet) throw new Error('Geen werkblad gevonden');
+  const sheets = Object.keys(files).filter(k => /^xl\/worksheets\/[^/]+\.xml$/.test(k)).sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 0) - (parseInt(b.replace(/\D/g, '')) || 0));
+  if (!sheets.length) throw new Error('Geen werkblad gevonden');
+  let best = null;
+  for (const sh of sheets) {
+    const rows = await sheetRows(sh), hdr = (rows[0] || []).map(x => String(x).toLowerCase());
+    if (!best) best = rows;
+    if (hdr.some(h => /datum|date/.test(h)) && hdr.some(h => /bedrag|amount/.test(h))) { if (wantTx) return rows; }
+    if (!wantTx && hdr.some(h => /soort|type/.test(h))) return rows;
+  }
+  return best;
+  async function sheetRows(sheet) {
   const rows = [];
   for (const r of tags(xml(await get(sheet)), 'row')) {
     const row = [];
@@ -781,10 +790,11 @@ async function readXlsx(buf) {
     rows.push(row);
   }
   return rows.filter(r => r.some(x => String(x).trim() !== ''));
+  }
 }
-async function readTable(file) {
+async function readTable(file, wantTx) {
   const buf = await file.arrayBuffer(), u8 = new Uint8Array(buf);
-  if (u8[0] === 0x50 && u8[1] === 0x4b) return readXlsx(buf);
+  if (u8[0] === 0x50 && u8[1] === 0x4b) return readXlsx(buf, wantTx);
   let text = new TextDecoder('utf-8').decode(buf);
   if (text.includes('�')) text = new TextDecoder('windows-1252').decode(buf);
   return parseCSV(text);
@@ -820,12 +830,13 @@ const guessCol = (hdr, re) => hdr.findIndex(h => re.test(String(h).toLowerCase()
 let IMP = null;
 async function onDymeFile(file) {
   try {
-    const rows = await readTable(file);
+    const rows = await readTable(file, true);
     if (rows.length < 2) return toast('Bestand is leeg');
     const hdr = rows[0].map(x => String(x));
     IMP = { rows, hdr, sign: 'neg', map: {
-      date: Math.max(0, guessCol(hdr, /datum|date/)), amt: guessCol(hdr, /bedrag|amount|waarde|value/), cat: guessCol(hdr, /categor/),
-      desc: guessCol(hdr, /omschrijving|beschrijving|description|naam|name|tegenpartij|merchant|titel|title/) } };
+      date: Math.max(0, guessCol(hdr, /datum|date/)), amt: guessCol(hdr, /^bedrag|^amount|waarde|value/), cat: guessCol(hdr, /^categor|^category/) >= 0 ? guessCol(hdr, /^categor|^category/) : guessCol(hdr, /categor/),
+      sup: guessCol(hdr, /super|hoofd/),
+      desc: guessCol(hdr, /tegenpartij naam|^naam|^name|merchant/) >= 0 ? guessCol(hdr, /tegenpartij naam|^naam|^name|merchant/) : guessCol(hdr, /omschrijving|beschrijving|description|tegenpartij|titel|title/) } };
     if (IMP.map.amt < 0) IMP.map.amt = Math.min(1, hdr.length - 1);
     sheetDymeMap();
   } catch (err) { toast('Kon bestand niet lezen: ' + err.message); }
@@ -841,7 +852,8 @@ function rowsToTx() {
     if (!dt || isNaN(a)) { errs.push(r); continue; }
     const cat = (IMP.map.cat >= 0 ? String(r[IMP.map.cat] ?? '').trim() : '') || '(geen categorie)';
     const desc = IMP.map.desc >= 0 ? String(r[IMP.map.desc] ?? '').trim().slice(0, 120) : '';
-    out.push({ date: iso(dt), amt: r2(IMP.sign === 'neg' ? -a : Math.abs(a)), cat, desc });
+    const sup = IMP.map.sup >= 0 ? String(r[IMP.map.sup] ?? '').trim() : '';
+    out.push({ date: iso(dt), amt: r2(IMP.sign === 'neg' ? -a : Math.abs(a)), cat, desc, ...(sup ? { sup } : {}) });
   }
   return { out, errs };
 }
@@ -853,6 +865,7 @@ function sheetDymeMap() {
     <div class="map-row"><span class="c">Bedrag</span>${colSelect('amt')}</div>
     <div class="map-row"><span class="c">Categorie</span>${colSelect('cat', true)}</div>
     <div class="map-row"><span class="c">Omschrijving</span>${colSelect('desc', true)}</div>
+    <div class="map-row"><span class="c">Hoofdcategorie</span>${colSelect('sup', true)}</div>
     <div class="map-row"><span class="c">Uitgaven zijn</span><select data-impsign="1"><option value="neg"${IMP.sign === 'neg' ? ' selected' : ''}>negatief (−)</option><option value="abs"${IMP.sign === 'abs' ? ' selected' : ''}>alle bedragen</option></select></div>
     <div class="preview"><table>${pv.map(t => `<tr><td>${t.date}</td><td>${esc(t.cat)}</td><td>${esc(t.desc.slice(0, 22))}</td><td style="text-align:right">${eur2(t.amt)}</td></tr>`).join('') || '<tr><td>Nog geen geldige regels — pas de kolommen aan.</td></tr>'}</table></div>
     <p class="hint">${out.length} geldig${errs.length ? ` · ${errs.length} overgeslagen (geen datum of bedrag)` : ''}. Positieve bedragen in een gekoppelde categorie tellen als terugbetaling.</p>
@@ -869,12 +882,12 @@ function autoMap(cat, net) {
 function sheetDymeCats() {
   const { out } = rowsToTx(); IMP.tx = out;
   const cats = {};
-  for (const t of out) { cats[t.cat] = cats[t.cat] || { n: 0, amt: 0 }; cats[t.cat].n++; cats[t.cat].amt += t.amt; }
+  for (const t of out) { cats[t.cat] = cats[t.cat] || { n: 0, amt: 0, sup: t.sup }; cats[t.cat].n++; cats[t.cat].amt += t.amt; }
   const ids = new Set(S.dyme.map(d => d.id));
   const todo = Object.entries(cats).filter(([c]) => !(S.catMap[c] === '__ignore' || ids.has(S.catMap[c])));
   if (!todo.length) return doImport({});
   openSheet('Nieuwe categorieën', `<p class="hint">Deze Dyme-categorieën ken ik nog niet. Koppel ze aan een maandbudget; dit wordt onthouden.</p>` +
-    todo.sort((a, b) => b[1].amt - a[1].amt).map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(autoMap(c, v.amt))}</select></div>`).join('') +
+    todo.sort((a, b) => b[1].amt - a[1].amt).map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.sup && v.sup !== c ? esc(v.sup) + ' · ' : ''}${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(autoMap(c, v.amt))}</select></div>`).join('') +
     `<button class="btn primary" data-act="imp-do">Importeren</button>`, { closeLabel: 'Annuleer' });
 }
 function doImport(newMap) {
@@ -893,7 +906,8 @@ function typeFromText(s) {
   s = String(s).toLowerCase().trim();
   if (/overig|extra/.test(s) && /inkom/.test(s)) return 'extra';
   if (/inkom|salaris|loon|bonus/.test(s)) return 'inkomen';
-  if (/dyme|variab/.test(s)) return 'dyme';
+  if (/negeer|negeren/.test(s)) return 'ignore';
+  if (/dyme|variab|maandbudget/.test(s)) return 'dyme';
   if (/jaarbudget/.test(s)) return 'pot-vrij';
   if (/spaarpost|spaarrek|losse/.test(s)) return 'pot-spaar';
   if (/^sparen.*rest|restpost/.test(s)) return 'sparen-rest';
@@ -909,14 +923,16 @@ async function onBudgetFile(file) {
       doel: guessCol(hdr, /^doel|richtlijn|^budget|^bedrag/), grens: guessCol(hdr, /grens|max|limiet/), dyme: guessCol(hdr, /dyme/),
       mon: MON.map(n => guessCol(hdr, new RegExp('^' + n))) };
     if (c.soort < 0 || c.naam < 0) return toast('Kolommen Soort en Categorie niet gevonden — gebruik het sjabloon');
-    const lines = [], dyme = [], pots = [], extra = [], skip = [];
+    const lines = [], dyme = [], pots = [], extra = [], ignore = [], skip = [];
     const val = (r, i) => i >= 0 ? parseNum(r[i]) : NaN;
     for (const r of rows.slice(1)) {
       const t = typeFromText(r[c.soort]), name = String(r[c.naam] ?? '').trim();
       if (!t || !name) { if (name) skip.push(name); continue; }
       const doel = val(r, c.doel), grens = val(r, c.grens), months = c.mon.map(i => val(r, i));
       const hasMonths = months.some(v => !isNaN(v));
-      if (t === 'extra') {
+      if (t === 'ignore') {
+        if (c.dyme >= 0) ignore.push(...String(r[c.dyme] ?? '').split('|').map(x => x.trim()).filter(Boolean));
+      } else if (t === 'extra') {
         months.forEach((v, k) => { if (!isNaN(v) && v) extra.push({ id: uid(), k, name, amt: Math.abs(v) }); });
       } else if (t === 'dyme') {
         const dJ = isNaN(doel) ? 0 : Math.abs(doel), gJ = isNaN(grens) ? dJ : Math.abs(grens);
@@ -935,7 +951,7 @@ async function onBudgetFile(file) {
       }
     }
     if (!lines.length && !dyme.length) return toast('Geen budgetregels gevonden');
-    IMP = { budget: { lines, dyme, pots, extra } };
+    IMP = { budget: { lines, dyme, pots, extra, ignore } };
     const t = { inkomen: z12(), vast: z12(), sparen: z12(), overboeking: z12() };
     for (const l of lines) for (let k = 0; k < 12; k++) t[l.type][k] += l.m[k];
     for (const e of extra) t.inkomen[e.k] += e.amt;
@@ -952,6 +968,7 @@ async function onBudgetFile(file) {
       <div class="kv total"><span>Vrije ruimte</span><b>${eur(sum(vrij))}</b></div>
       <div class="kv"><span>Maandbudgetten (${dyme.length})</span><b>${eur(dymeDoel)}</b></div>
       <div class="kv"><span>Jaarbudgetten (${pots.filter(p => p.vrij).length})</span><b>${eur(vrijPotDoel)}</b></div>
+      ${ignore.length ? `<div class="kv"><span>Dyme-categorieën negeren</span><b>${ignore.length}</b></div>` : ''}
       <div class="kv"><span>Spaarposten (${pots.filter(p => !p.vrij).length})</span><b>${eur(sum(pots.filter(p => !p.vrij).map(p => p.doel)))}</b></div></div>
       ${Math.abs(sum(vrij) - dymeDoel - vrijPotDoel) > 1 ? `<p class="hint wrn">Let op: vrije ruimte en budgetten verschillen ${eurS(sum(vrij) - dymeDoel - vrijPotDoel)}.</p>` : ''}
       ${skip.length ? `<p class="hint">Overgeslagen: ${skip.map(esc).join(', ')}</p>` : ''}
@@ -969,6 +986,7 @@ function exportBudgetRows() {
   const T = { inkomen: 'Inkomen', vast: 'Vast', sparen: 'Sparen', overboeking: 'Overboeking' };
   return [...S.lines.map(l => l.rest ? ['Sparen (rest)', l.name, '', '', '', ...Array(12).fill(''), ''] : [T[l.type], l.name, '', '', '', ...l.m, '']),
     ...S.dyme.map(d => ['Dyme', d.name, '', sum(d.doel), sum(d.grens), ...d.doel, Object.entries(S.catMap).filter(([, v]) => v === d.id).map(([c]) => c).join('|')]),
+    ...(Object.values(S.catMap).includes('__ignore') ? [['Negeren', 'Dyme-categorieën die niet meetellen', '', '', '', ...Array(12).fill(''), Object.entries(S.catMap).filter(([, v]) => v === '__ignore').map(([c]) => c).join('|')]] : []),
     ...S.extraInc.map(e => ['Overige inkomsten', e.name, '', '', '', ...MON.map((_, k) => k === e.k ? e.amt : ''), '']),
     ...S.pots.filter(p => !p.sys).map(p => [p.vrij ? 'Jaarbudget' : 'Spaarpost', p.name, p.acct === 'lopend' ? 'Lopende rekening' : 'Spaarrekening', +p.doel || '', +p.grens || '', ...Array(12).fill(''), ''])];
 }
@@ -1133,7 +1151,7 @@ const ACT = {
   'imp-next': () => sheetDymeCats(),
   'imp-do': () => { const nm = {}; $$('[data-map]').forEach(s => { if (s.value) nm[s.dataset.map] = s.value; }); doImport(nm); },
   'budget-do': () => {
-    const { lines, dyme, pots, extra } = IMP.budget, yr = parseInt(val('#b-year'), 10);
+    const { lines, dyme, pots, extra, ignore } = IMP.budget, yr = parseInt(val('#b-year'), 10);
     if (S.demo) { S = defaultState(); }
     // bestaande ids behouden (op naam), zodat mutaties en Dyme-koppelingen blijven kloppen
     const byName = (arr, n) => arr.find(x => normName(x.name) === normName(n));
@@ -1145,6 +1163,7 @@ const ACT = {
     pots.sort((a, b) => (a.sys ? 1 : 0) - (b.sys ? 1 : 0) || (b.vrij - a.vrij));
     S.lines = lines; S.dyme = dyme; S.pots = pots; S.extraInc = extra || []; S.baseline = null;
     for (const d of dyme) for (const c of d.cats || []) S.catMap[c] = d.id;
+    for (const c of ignore || []) S.catMap[c] = '__ignore';
     if (yr > 2000 && yr < 2100) S.settings.year = yr;
     IMP = null; save(); closeSheet(); ui.tab = 'budget'; ui.budMode = 'jaar'; render(); toast('Budget ingelezen');
   },

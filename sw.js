@@ -1,6 +1,6 @@
 /* Service worker: bewaart de app-bestanden op het toestel zodat de app volledig offline werkt.
    Er worden nooit gegevens verstuurd; alleen de eigen app-bestanden worden uit de cache geladen. */
-const VERSION = 'jaarbudget-v6';
+const VERSION = 'jaarbudget-v7';
 const FILES = ['./', './index.html', './app.js', './app.css', './manifest.webmanifest', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
