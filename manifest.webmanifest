@@ -1,0 +1,14 @@
+{
+  "name": "Jaarbudget",
+  "short_name": "Jaarbudget",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F3F0E9",
+  "theme_color": "#F3F0E9",
+  "lang": "nl",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

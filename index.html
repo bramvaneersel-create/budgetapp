@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<!-- Beveiliging: deze regel verbiedt de app om ooit verbinding te maken met internet
+     (connect-src 'none'), en laat alleen eigen bestanden van deze app toe. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Jaarbudget">
+<meta name="theme-color" content="#F3F0E9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<meta name="format-detection" content="telephone=no">
+<title>Jaarbudget</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <main id="main"></main>
+</div>
+<nav class="tabbar" id="tabbar">
+  <button data-act="tab" data-tab="dash"><svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span>Overzicht</span></button>
+  <button data-act="tab" data-tab="budget"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg><span>Budgetten</span></button>
+  <button data-act="tab" data-tab="spaar"><svg viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="12" rx="2.5"/><path d="M3.5 11h17M8 15h3"/></svg><span>Spaarrekening</span></button>
+  <button data-act="tab" data-tab="instel"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg><span>Instellingen</span></button>
+</nav>
+<div id="sheet-root"></div>
+<div id="toast" class="toast" role="status"></div>
+<input type="file" id="file-dyme" class="hidden" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+<input type="file" id="file-budget" class="hidden" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+<input type="file" id="file-backup" class="hidden" accept=".json,application/json,text/plain">
+<script src="app.js"></script>
+</body>
+</html>
