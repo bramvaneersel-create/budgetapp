@@ -220,23 +220,29 @@ function model() {
   // 5. Spaarrekening: startsaldo is na de storting van januari; daarna storting op elke salarisdag, rente per maand.
   const r = (+S.settings.interest || 0) / 100 / 12, start = +S.settings.startSavings || 0;
   let bal = start, rente = 0, balA = start, renteA = 0;
+  const fcPath = [start], periodStart = z12();   // saldo na elke periode; saldo op elke salarisdag (na storting)
   for (let k = 0; k < 12; k++) {
     const dep = k > 0 ? pl.sparen[k] : 0;
     const act = opn[k] + spaarUitg[k] - kas[k];
     const fut = k >= Math.max(cur, 0) ? predOpn[k] + predSpaar[k] : 0;
-    bal += dep - act - fut; const i = bal * r; rente += i; bal += i;
+    periodStart[k] = bal + dep;
+    bal += dep - act - fut; const i = bal * r; rente += i; bal += i; fcPath.push(bal);
     if (k < cur) { balA += dep - act; const ia = balA * r; renteA += ia; balA += ia; }
     else if (k === cur) balA += dep - act;
   }
   const eind = bal, savingsNow = cur < 0 ? start : balA;
   // plan: geen tekorten, jaarbudgetten precies op doel
-  let pb = start, prente = 0, ping = 0;
+  let pb = start, prente = 0, ping = 0; const planPath = [start];
   for (let k = 0; k < 12; k++) {
     let out = 0; for (const p of S.pots) if (+p.doel > 0 && p.acct === 'spaar' && !p.sys) out += p.vrij ? p.doel / 12 : (k === 11 ? +p.doel : 0);
-    pb += (k > 0 ? pl.sparen[k] : 0) - out; const i = pb * r; prente += i; pb += i;
+    pb += (k > 0 ? pl.sparen[k] : 0) - out; const i = pb * r; prente += i; pb += i; planPath.push(pb);
     ping += pl.vrij[k] - pl.dd[k] - pl.lopDoel / 12;
   }
   const band = cur > 11 ? 0 : 1.28 * Math.sqrt(sd2);
+  // Prognose begin boekjaar: wordt vastgezet bij de eerste salarisdag (relatief t.o.v. startsaldo,
+  // zodat het later invullen van het exacte startsaldo de lijn netjes meeschuift)
+  if (cur >= 0 && (S.lines.length || S.dyme.length) && (!S.baseline || S.baseline.year !== y)) { S.baseline = { year: y, rel: planPath.map(v => r2(v - start)) }; save(); }
+  const basePath = S.baseline && S.baseline.year === y ? S.baseline.rel.map(v => v + start) : planPath;
 
   // 6. Vrije ruimte over het jaar
   const dyYtd = {}; for (const d of S.dyme) { let s = 0; for (let k = 0; k <= Math.min(cur, 11); k++) s += sp[k]?.[d.id] || 0; dyYtd[d.id] = s; }
@@ -245,7 +251,7 @@ function model() {
   return { y, P, T, cur, inYear, frac, elapsed, pl, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
     potSpent, potRem, predOpn, predLop, predSpaar, result, ingEnd, start, eind, savingsNow, rente, renteA, planEind: pb, planRente: prente,
     planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pl.sparen.slice(1)),
-    nAvg, avgTot, avgDy, avgPot, scale, topDown, bottomUp, vrijRem };
+    nAvg, avgTot, avgDy, avgPot, scale, topDown, bottomUp, vrijRem, fcPath, planPath, basePath, periodStart, potVrijK };
 }
 
 function status(s, d, g) { if (s <= d + 0.005) return 'ok'; if (s <= (g || d) + 0.005) return 'warn'; return 'over'; }
@@ -274,7 +280,7 @@ function chart(m) {
   const W = 340, H = 176, pl = 30, pr = 4, pt = 8, pb = 20, iw = W - pl - pr, ih = H - pt - pb;
   const max = Math.max(...m.pl.dg, ...m.pl.dd, ...m.dyExp, 50) * 1.1;
   const y = v => pt + ih - (v / max) * ih, bw = iw / 12, step = niceStep(max / 3);
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Dyme-uitgaven per maand">` +
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Uitgaven maandbudgetten per maand">` +
     `<defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" class="hatch-bg"/><line x1="0" y1="0" x2="0" y2="4" class="hatch-ln"/></pattern></defs>`;
   for (let v = 0; v < max; v += step) s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${pl - 4}" y="${y(v) + 3}" class="axis" text-anchor="end">${shortK(v)}</text>`;
   for (let k = 0; k < 12; k++) {
@@ -299,7 +305,7 @@ function chartDetail(m) {
   const k = ui.sel ?? (m.inYear ? m.cur : null); if (k === null) return '';
   const kd = m.kind[k], p = m.P[k];
   const head = `<div class="row"><b>${MONF[k]} <span class="sub">· ${dShort(p.start)} – ${dShort(p.end)}</span></b></div>`;
-  if (kd === 'assumed') return `<div class="chart-detail">${head}<div class="sub">Geen Dyme-gegevens — aangenomen als budget (${eur(m.pl.dd[k])}).</div></div>`;
+  if (kd === 'assumed') return `<div class="chart-detail">${head}<div class="sub">Geen Dyme-gegevens — aangenomen als maandbudget (${eur(m.pl.dd[k])}).</div></div>`;
   const rows = S.dyme.map(d => { const a = m.sp[k][d.id] || 0, v = kd === 'forecast' ? m.lineF[d.id].f(k) : a; return { n: d.name, v, st: status(v, +d.doel[k], +d.grens[k]) }; }).sort((a, b) => b.v - a.v);
   return `<div class="chart-detail">${head}` +
     `<div class="kv"><span>${kd === 'actual' ? 'Uitgegeven' : kd === 'current' ? 'Tot nu toe' : 'Verwacht'}</span><b>${eur(kd === 'current' ? m.dyAct[k] : m.dyExp[k])}</b></div>` +
@@ -309,6 +315,30 @@ function chartDetail(m) {
     rows.map(r => `<div class="kv"><span>${esc(r.n)}</span><b class="${r.st === 'over' ? 'neg' : r.st === 'warn' ? 'wrn' : ''}">${eur(r.v)}</b></div>`).join('') + `</div>`;
 }
 
+function lineChart(m) {
+  const W = 340, H = 190, pl = 38, pr = 8, pt = 10, pb = 20, iw = W - pl - pr, ih = H - pt - pb;
+  const n = m.cur < 0 ? -1 : m.cur > 11 ? 12 : m.cur;
+  const nowX = m.cur < 0 ? 0 : m.cur > 11 ? 12 : m.cur + m.frac;
+  const real = m.fcPath.slice(0, Math.max(0, n) + 1).map((v, i) => [i, v]);
+  if (m.inYear) real.push([nowX, m.savingsNow]);
+  const fc = m.cur > 11 ? [] : [[nowX, m.inYear ? m.savingsNow : m.start], ...m.fcPath.map((v, i) => [i, v]).filter(([i]) => i > nowX)];
+  const all = [...m.basePath, ...m.fcPath, m.savingsNow];
+  let lo = Math.min(...all), hi = Math.max(...all); const pad = (hi - lo) * 0.12 || 500; lo -= pad; hi += pad;
+  const step = niceStep((hi - lo) / 3); lo = Math.floor(lo / step) * step;
+  const x = i => pl + i / 12 * iw, y = v => pt + ih - (v - lo) / (hi - lo) * ih;
+  const path = pts => pts.map(([i, v], j) => (j ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Verloop spaarrekening">`;
+  for (let v = lo; v <= hi; v += step) s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${pl - 4}" y="${y(v) + 3}" class="axis" text-anchor="end">${shortK(v)}</text>`;
+  for (let k = 0; k < 12; k += 1) s += `<text x="${x(k + 0.5)}" y="${H - 5}" class="mon${k === m.cur ? ' sel' : ''}" text-anchor="middle">${MON[k][0].toUpperCase()}</text>`;
+  if (m.inYear) s += `<line x1="${x(nowX)}" x2="${x(nowX)}" y1="${pt}" y2="${pt + ih}" class="today"/>`;
+  s += `<path d="${path(m.basePath.map((v, i) => [i, v]))}" class="ln-base"/>`;
+  if (fc.length > 1) s += `<path d="${path(fc)}" class="ln-fc"/>`;
+  if (real.length > 1) s += `<path d="${path(real)}" class="ln-real"/>`;
+  const last = real.length ? real[real.length - 1] : [0, m.start];
+  s += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="3.5" class="dot-real"/>`;
+  s += `<circle cx="${x(12)}" cy="${y(m.eind)}" r="3" class="dot-fc"/>`;
+  return s + `</svg>`;
+}
 const ICON = {
   out: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
@@ -316,6 +346,22 @@ const ICON = {
   chk: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   home: '<svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/></svg>'
 };
+function reminderHtml(m) {
+  // vanaf 1 dag vóór de salarisdag: Dyme inlezen en saldo invoeren, tot beide gedaan zijn
+  const nxt = m.inYear ? addDays(m.P[m.cur].end, 1) : m.cur < 0 ? m.P[0].start : null;
+  let trig = null;
+  if (nxt && m.T >= addDays(nxt, -1)) trig = addDays(nxt, -1);
+  else if (m.inYear) trig = addDays(m.P[m.cur].start, -1);
+  if (!trig) return '';
+  const t = iso(trig), dymeDone = S.lastImport && S.lastImport >= t;
+  const saldoDone = S.moves.some(x => x.kind === 'kas' && x.date >= t);
+  if (dymeDone && saldoDone) return '';
+  const when = nxt && dayDiff(m.T, nxt) === 1 ? 'Morgen salaris' : 'Salaris ontvangen';
+  return `<div class="card callout"><b>${when} — maand afsluiten</b><div class="sub" style="margin-bottom:10px">Lees je Dyme-export in en controleer het saldo van je spaarrekening.</div>
+    <div class="two-btn" style="margin:0">
+      <button class="btn${dymeDone ? ' done' : ' primary'}" data-act="pick-dyme">${dymeDone ? '✓ Dyme ingelezen' : 'Dyme-export inlezen'}</button>
+      <button class="btn${saldoDone ? ' done' : ' primary'}" data-act="sheet-saldo">${saldoDone ? '✓ Saldo ingevoerd' : 'Saldo invoeren'}</button></div></div>`;
+}
 function actionsHtml(withImport) {
   return `<div class="actions">
     <button class="act" data-act="sheet-opname"><span class="ic">${ICON.out}</span><b>Geld opnemen<small>van spaarrekening</small></b></button>
@@ -339,20 +385,19 @@ function renderDash(m) {
       <button class="btn" data-act="budget-template">Sjabloon downloaden</button>
       <button class="btn" data-act="demo">Demo bekijken</button></div>`;
   }
+  h += reminderHtml(m) + actionsHtml(false);
   // periode
   if (m.inYear) {
     const p = m.P[m.cur], nxt = addDays(p.end, 1), daysTo = dayDiff(m.T, nxt);
     const spent = m.dyAct[m.cur], doel = m.pl.dd[m.cur], grens = m.pl.dg[m.cur], left = doel - spent;
     h += `<div class="card">
-      <div class="period-head"><div><div class="lbl">Deze periode · Dyme-budgetten</div><div style="font-weight:600">${dShort(p.start)} – ${dShort(p.end)}</div></div>
+      <div class="period-head"><div><div class="lbl">Deze periode · maandbudgetten</div><div style="font-weight:600">${dShort(p.start)} – ${dShort(p.end)}</div></div>
         <div class="countdown"><b>${daysTo}</b><span>${daysTo === 1 ? 'dag' : 'dagen'} tot<br>salaris</span></div></div>
       <div class="spent-line"><span class="mid money">${eur(spent)}</span><span class="sub">van ${eur(doel)} · grens ${eur(grens)}</span></div>
       ${bar(spent, doel, grens, doel * m.frac)}
       <div class="sub" style="margin-top:10px">${left >= 0 ? `Nog <b class="pos">${eur(left)}</b> tot je doel · ca. ${eur(left / Math.max(1, daysTo))} per dag`
         : spent <= grens ? `<b class="wrn">${eur(-left)}</b> boven doel · nog ${eur(grens - spent)} tot je grens` : `<b class="neg">${eur(spent - grens)}</b> boven je grens`}</div>
       <div class="hint" style="margin:8px 0 0">Volgend salaris: ${dLong(nxt)}${!m.hasData ? ' · nog geen Dyme-gegevens' : ''}</div></div>`;
-    if (!m.kasThisPeriod) h += `<div class="card callout"><div class="row"><div><b>Salaris ontvangen</b><div class="sub">Klopt het saldo van je spaarrekening nog?</div></div>
-      <button class="pill-btn" data-act="sheet-saldo">Saldo invoeren</button></div></div>`;
   } else {
     const nxt = m.cur < 0 ? m.P[0].start : payday(m.y + 1, 0), d = dayDiff(m.T, nxt);
     h += `<div class="card"><div class="lbl">${m.cur < 0 ? `Boekjaar ${m.y} begint` : `Boekjaar ${m.y} is afgelopen`}</div><div class="mid">${dLong(nxt)}</div><div class="sub">${m.cur < 0 ? `Eerste salaris over ${d} dagen` : 'Start een nieuw boekjaar via Instellingen'}</div></div>`;
@@ -369,8 +414,7 @@ function renderDash(m) {
     <div class="kv"><span>Verschil met plan</span><b class="${diff >= 0 ? 'pos' : 'neg'}">${eurS(diff)}</b></div>
     <div class="kv"><span>Verwacht over op lopende rekening</span><b>${eur(m.ingEnd)}</b></div>
     ${m.nAvg ? `<div class="kv"><span>Gem. vrije uitgaven per maand</span><b class="${m.avgTot > sum(m.pl.budgetM) / 12 + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(sum(m.pl.budgetM) / 12)}</small></b></div>` : ''}</div>`;
-  h += actionsHtml(true);
-  h += `<div class="card"><div class="row"><div class="lbl">Dyme-uitgaven per maand</div><span class="sub" style="font-size:12px">tik op een maand</span></div>
+  h += `<div class="card"><div class="row"><div class="lbl">Uitgaven maandbudgetten per maand</div><span class="sub" style="font-size:12px">tik op een maand</span></div>
     ${chart(m)}<div class="legend"><span><i class="l-act"></i>werkelijk</span><span><i class="l-fc"></i>verwacht</span><span><i class="l-doel"></i>doel</span><span><i class="l-grens"></i>grens</span></div>${chartDetail(m)}</div>`;
   h += jaarBudgetsHtml(m, true);
   return h;
@@ -379,10 +423,15 @@ function renderDash(m) {
 function jaarBudgetsHtml(m, compact) {
   const pace = m.elapsed / 12;
   let h = `<h2>Jaarbudgetten ${m.y}</h2>`;
+  const pct = Math.round(pace * 100);
+  h += `<div class="card year-prog"><div class="row"><span class="lbl">Jaar verstreken</span><b>${pct}%</b></div>
+    <div class="bar"><div class="fill prog" style="width:${pct}%"></div></div>
+    <div class="meta"><span>${dShort(m.P[0].start)}</span><span>${m.inYear ? 'vandaag ' + dShort(m.T) : ''}</span><span>31 dec</span></div>
+    <div class="legend" style="margin-top:8px"><span><i class="l-pace"></i>zo ver is het jaar — vergelijk met de balk</span></div></div>`;
   h += `<div class="card tight">` + S.dyme.map(d => {
     const doel = sum(d.doel), grens = sum(d.grens), s = m.dyYtd[d.id] || 0;
-    return budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'Dyme', act: compact ? null : 'edit-dyme', id: d.id });
-  }).join('') + vrijPots().map(p => budgetRow(p.name, m.potSpent[p.id] || 0, +p.doel, +p.grens || +p.doel, { act: compact ? null : 'edit-pot', id: p.id })).join('') + `</div>`;
+    return budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'maand', act: compact ? null : 'edit-dyme', id: d.id });
+  }).join('') + vrijPots().map(p => budgetRow(p.name, m.potSpent[p.id] || 0, +p.doel, +p.grens || +p.doel, { pace: (+p.doel) * pace, act: compact ? null : 'edit-pot', id: p.id })).join('') + `</div>`;
   const others = spaarPosts();
   if (others.length) h += `<h2>Overige uitgaven spaarrekening ${m.y}</h2><div class="card tight">` + others.map(p => {
     const s = m.potSpent[p.id] || 0;
@@ -401,16 +450,23 @@ function renderBudget(m) {
 
   if (mode === 'periode') {
     const k = Math.min(Math.max(m.cur, 0), 11), p = m.P[k];
-    let saldo = 0;
-    const rows = S.dyme.map(d => {
-      const s = m.sp[k][d.id] || 0, doel = +d.doel[k] || 0, grens = +d.grens[k] || doel; saldo += doel - s;
-      return budgetRow(d.name, s, doel, grens, { pace: m.cur === k ? doel * m.frac : null, act: 'edit-dyme', id: d.id });
-    }).join('');
-    h += `<div class="card"><div class="lbl">Saldo Dyme-budgetten · ${dShort(p.start)} – ${dShort(p.end)}</div>
-      <div class="big ${saldo >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 4px">${eurS(saldo)}</div>
-      <div class="sub">${saldo >= 0 ? 'Ruimte ten opzichte van je doelen' : 'Over je doelen heen'} · t.o.v. grens ${eurS(m.pl.dg[k] - (m.dyAct[k] || 0))}</div></div>
-      <h2>Dyme</h2><div class="card tight">${rows || '<div class="empty">Geen Dyme-budgetten</div>'}</div>
-      <div class="legend" style="margin:-4px 6px 8px"><span><i class="l-doel"></i>doel</span><span><i class="l-grens"></i>grens</span><span><i class="l-pace"></i>tempo vandaag</span></div>`;
+    const startS = m.periodStart[k], opn = m.opn[k], uit = m.spaarUitg[k];
+    const ruimte = m.pl.vrij[k] - m.pl.dd[k], jb = m.potVrijK[k], besch = ruimte - jb - opn;
+    const perPot = S.pots.filter(x => x.acct === 'spaar' && !x.sys).map(x => [x.name, sum(S.moves.filter(mv => mv.kind === 'uitgave' && mv.pot === x.id && fromIso(mv.date) >= p.start && fromIso(mv.date) <= p.end).map(mv => mv.amt))]).filter(x => x[1]);
+    h += `<div class="card"><div class="lbl">Deze periode · ${dShort(p.start)} – ${dShort(p.end)}</div>
+      <div class="sub" style="margin-bottom:6px">Begint opnieuw bij elke salarisdag</div>
+      <div class="kv"><span>Startsaldo spaarrekening <small class="sub">(${dShort(p.start)}, na storting)</small></span><b>${eur(startS)}</b></div>
+      <div class="kv"><span>Extra opgenomen van spaarrekening</span><b class="${opn ? 'neg' : ''}">−${eur(opn)}</b></div>
+      <div class="kv"><span>Extra uitgaven spaarrekening</span><b>−${eur(uit)}</b></div>
+      ${perPot.map(([n, v]) => `<div class="kv sub-kv"><span>${esc(n)}</span><span>${eur(v)}</span></div>`).join('')}
+      <div class="kv total"><span>Saldo spaarrekening nu</span><b>${eur(startS - opn - uit + (m.kas[k] || 0))}</b></div></div>
+      <div class="card"><div class="lbl">Vrije ruimte beschikbaar</div>
+      <div class="big ${besch >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 8px">${eurS(besch)}</div>
+      <div class="kv"><span>Vrije ruimte deze periode</span><b>${eur(m.pl.vrij[k])}</b></div>
+      <div class="kv"><span>Maandbudgetten (in Dyme)</span><b>−${eur(m.pl.dd[k])}</b></div>
+      <div class="kv"><span>Jaarbudgetten uitgegeven</span><b>−${eur(jb)}</b></div>
+      <div class="kv"><span>Extra opgenomen</span><b>−${eur(opn)}</b></div>
+      <p class="hint" style="margin:8px 0 0">Plus: je hebt nog ruimte voor jaarbudgetten. Min: je hebt deze periode meer uitgegeven dan je vrije ruimte.</p></div>`;
   } else {
     const st = status(m.vrijExp, m.pl.jaarDoel, m.pl.jaarGrens);
     h += `<div class="card"><div class="row"><div class="lbl">Prognose vrije ruimte ${m.y}</div><span class="chip ${st}">${STATUS_TXT[st]}</span></div>
@@ -421,12 +477,11 @@ function renderBudget(m) {
       const bud = sum(m.pl.budgetM) / 12, bdy = sum(m.pl.dd) / 12, bpot = m.pl.potDoel / 12;
       const kvA = (n, a, b) => `<div class="kv"><span>${n}</span><b class="${a > b + 0.5 ? 'neg' : ''}">${eur(a)} <small class="sub">/ ${eur(b)}</small></b></div>`;
       h += `<div class="card"><div class="lbl" style="margin-bottom:4px">Gemiddeld per maand · ${m.nAvg} ${m.nAvg === 1 ? 'periode' : 'perioden'}</div>
-        ${kvA('Dyme-budgetten', m.avgDy, bdy)}${kvA('Jaarbudgetten', m.avgPot, bpot)}<div class="kv total"><span>Vrije uitgaven</span><b class="${m.avgTot > bud + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(bud)}</small></b></div>
+        ${kvA('Maandbudgetten', m.avgDy, bdy)}${kvA('Jaarbudgetten', m.avgPot, bpot)}<div class="kv total"><span>Vrije uitgaven</span><b class="${m.avgTot > bud + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(bud)}</small></b></div>
         <p class="hint" style="margin:8px 0 0">Bij dit gemiddelde kom je dit jaar uit op ${eur(sum(m.dyAct.slice(0, Math.min(m.cur, 11) + 1)) + sum(S.pots.filter(p => p.vrij).map(p => m.potSpent[p.id] || 0)) + m.topDown)}. De prognose weegt dit ${m.scale > 1.005 ? 'mee en ligt daardoor hoger' : m.scale < 0.995 ? 'mee en ligt daardoor lager' : 'mee'}.</p></div>`;
     }
     h += jaarBudgetsHtml(m, false);
-    h += `<div class="legend" style="margin:-4px 6px 8px"><span><i class="l-pace"></i>waar je nu zou moeten zitten (Dyme)</span></div>`;
-    h += `<div class="two-btn"><button class="btn" data-act="edit-dyme" data-id="">Dyme-budget toevoegen</button><button class="btn" data-act="edit-pot" data-id="">Jaarbudget toevoegen</button></div>`;
+    h += `<div class="two-btn"><button class="btn" data-act="edit-dyme" data-id="">Maandbudget toevoegen</button><button class="btn" data-act="edit-pot" data-id="">Jaarbudget toevoegen</button></div>`;
   }
 
   // Maandplan
@@ -440,7 +495,7 @@ function renderBudget(m) {
   h += `<h2>Maandplan</h2><div class="month-chips">${MON.map((n, i) => `<button data-act="plan-month" data-k="${i}" class="${i === pm ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div class="card tight">${grp('inkomen', 'Inkomen')}${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}
     <div class="list-btn plain grp total"><span>Vrije ruimte</span><span class="r">${eur(pl.vrij[pm])}</span></div>
-    <div class="list-btn plain sub-row"><span>Dyme-budgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
+    <div class="list-btn plain sub-row"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
     ${pl.lopDoel ? `<div class="list-btn plain sub-row"><span>Jaarbudgetten lopende rekening (÷12)</span><span class="r">${eur(pl.lopDoel / 12)}</span></div>` : ''}
     <div class="list-btn plain grp"><span>Blijft op lopende rekening</span><span class="r ${onder >= 0 ? 'pos' : 'neg'}">${eurS(onder)}</span></div></div>
     <p class="hint">Tik op een post om de bedragen per maand aan te passen.</p>
@@ -450,9 +505,14 @@ function renderBudget(m) {
 
 function renderSpaar(m) {
   let h = header('Spaarrekening', `Boekjaar ${m.y}`);
-  h += `<div class="card"><div class="row"><div class="lbl">Saldo nu (berekend)</div>${m.lastKas ? `<span class="sub" style="font-size:12px">ingevoerd ${dShort(fromIso(m.lastKas.date))}</span>` : ''}</div>
-    <div class="big" style="margin:6px 0 10px">${eur(m.savingsNow)}</div>
+  const k0 = Math.min(Math.max(m.cur, 0), 11), lastPay = m.P[k0].start, since = m.savingsNow - m.periodStart[k0];
+  h += `<div class="card"><div class="lbl">Saldo per laatste salarisdag · ${dLong(lastPay)}</div>
+    <div class="big" style="margin:6px 0 4px">${eur(m.cur < 0 ? m.start : m.periodStart[k0])}</div>
+    <div class="sub" style="margin-bottom:10px">Inclusief storting${m.inYear && Math.abs(since) >= 0.5 ? ` · sindsdien ${eurS(since)} → nu ${eur(m.savingsNow)}` : ''}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
     <button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening invoeren</button></div>`;
+  h += `<div class="card"><div class="row"><div class="lbl">Verloop spaarrekening ${m.y}</div><span class="sub" style="font-size:12px">${eur(m.eind)} verwacht</span></div>
+    ${lineChart(m)}
+    <div class="legend"><span><i class="l-base"></i>prognose begin jaar</span><span><i class="l-real"></i>werkelijk</span><span><i class="l-fcl"></i>prognose</span></div></div>`;
   h += `<div class="card"><div class="lbl" style="margin-bottom:4px">Prognose 31 december</div>
     <div class="kv"><span>Startsaldo (na storting jan)</span><b>${eur(m.start)}</b></div>
     <div class="kv"><span>Stortingen feb–dec</span><b>+${eur(m.deposits)}</b></div>
@@ -493,7 +553,8 @@ function renderInstel(m) {
     <p class="hint">Het startsaldo mag een schatting zijn; vul het exacte bedrag in zodra je het weet. Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.</p>
     <div class="card tight"><div class="list-btn plain grp"><span>Salarisdagen ${m.y}</span><span class="r"></span></div>
       <div class="paydays">${P.map(p => `<span class="${p.start.getDate() !== +st.payday ? 'moved' : ''}">${dLong(p.start)}</span>`).join('')}</div></div>
-    <div class="card tight"><button class="list-btn" data-act="new-year"><span>Nieuw boekjaar starten</span><span class="r">${st.year + 1}</span></button></div>`;
+    <div class="card tight"><button class="list-btn" data-act="rebase"><span>Prognose begin jaar opnieuw vastzetten</span><span class="r"></span></button>
+    <button class="list-btn" data-act="new-year"><span>Nieuw boekjaar starten</span><span class="r">${st.year + 1}</span></button></div>`;
   h += `<h2>Budget</h2><div class="card tight">
     <button class="list-btn" data-act="pick-budget"><span>Budget inlezen (CSV/Excel)</span><span class="r"></span></button>
     <button class="list-btn" data-act="budget-template"><span>Sjabloon downloaden</span><span class="r"></span></button>
@@ -580,7 +641,7 @@ function sheetLine(id) {
 function sheetDyme(id) {
   const d = S.dyme.find(x => x.id === id) || { id: '', name: '', doel: z12(), grens: z12() };
   const cats = Object.entries(S.catMap).filter(([, v]) => v === d.id).map(([c]) => c);
-  openSheet(id ? d.name : 'Nieuw Dyme-budget', `
+  openSheet(id ? d.name : 'Nieuw maandbudget', `
     <label class="fld"><span>Naam</span><input id="d-name" value="${esc(d.name)}" maxlength="60"></label>
     <div class="fld-row"><label class="fld"><span>Doel per jaar</span><input id="d-doel-j" inputmode="decimal" value="${numIn(sum(d.doel))}"></label>
     <label class="fld"><span>Grens per jaar</span><input id="d-grens-j" inputmode="decimal" value="${numIn(sum(d.grens))}"></label></div>
@@ -615,20 +676,20 @@ function mapOptions(sel) {
 }
 function sheetCatmap() {
   const cats = Object.entries(dymeCats()).sort((a, b) => b[1].amt - a[1].amt);
-  openSheet('Dyme-categorieën', `<p class="hint">Koppel elke Dyme-categorie aan een Dyme-budget. Kies ‘Negeren’ voor inkomsten, overboekingen of uitgaven die je in de app als jaarbudget bijhoudt (zoals vakantie).</p>` +
+  openSheet('Dyme-categorieën', `<p class="hint">Koppel elke Dyme-categorie aan een maandbudget. Kies ‘Negeren’ voor inkomsten, overboekingen of uitgaven die je in de app als jaarbudget bijhoudt (zoals vakantie).</p>` +
     (cats.length ? cats.map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(S.catMap[c])}</select></div>`).join('')
       : '<div class="empty">Nog geen transacties ingelezen.</div>') +
     `<button class="btn primary" data-act="save-catmap">Opslaan</button>`, { closeLabel: 'Annuleer' });
 }
 function sheetInfo() {
   openSheet('Hoe werkt de prognose?', `<div class="prose">
-    <p><b>1. Dyme-budgetten.</b> Per budget kijkt de app naar je uitgaven in de afgelopen perioden; recente maanden tellen zwaarder. Met weinig data wordt de voorspelling naar je doel getrokken, met meer data vertrouwt de app op je eigen patroon. In de lopende periode telt wat je al uitgaf plus de verwachting tot je volgende salaris.</p>
+    <p><b>1. Maandbudgetten (Dyme).</b> Per budget kijkt de app naar je uitgaven in de afgelopen perioden; recente maanden tellen zwaarder. Met weinig data wordt de voorspelling naar je doel getrokken, met meer data vertrouwt de app op je eigen patroon. In de lopende periode telt wat je al uitgaf plus de verwachting tot je volgende salaris.</p>
     <p><b>2. Jaarbudgetten.</b> Voor bijv. vakantie of Vinci kijkt de app half naar wat er nog in het budget zit en half naar je tempo tot nu toe (zodra een kwart van het jaar voorbij is). Aparte spaarposten met een budget (zoals Huis) verwacht de app in december.</p>
     <p><b>3. Gemiddelde als controle.</b> Daarnaast berekent de app je gemiddelde vrije uitgaven per maand (Dyme en jaarbudgetten samen) en trekt dat door naar het einde van het jaar. Wijkt dat af van de optelsom per budget, dan schuift de prognose die kant op — hoe meer maanden data, hoe zwaarder (tot maximaal de helft).</p>
     <p><b>4. Lopende rekening.</b> Per periode: vrije ruimte − Dyme − jaarbudgetten die je van je lopende rekening betaalt. Een overschot blijft op je lopende rekening staan en vangt latere tekorten op. Wordt het saldo negatief, dan rekent de app met een opname van je spaarrekening.</p>
     <p><b>5. Spaarrekening 31 december</b> = startsaldo + stortingen + rente − opnames − uitgaven van de spaarrekening ± kasverschil (gedaan en verwacht).</p>
     <p><b>6. Saldo invoeren.</b> Na elk salaris kun je het echte saldo invoeren; het verschil wordt Kasverschil en de prognose rekent vanaf het echte saldo verder.</p>
-    <p><b>Bandbreedte.</b> Op basis van hoe sterk je Dyme-uitgaven per maand schommelen (ca. 80% zekerheid).</p></div>`);
+    <p><b>Bandbreedte.</b> Op basis van hoe sterk je uitgaven aan maandbudgetten schommelen (ca. 80% zekerheid).</p></div>`);
 }
 function confirmSheet(title, text, act) {
   openSheet(title, `<p class="hint" style="font-size:15px">${esc(text)}</p><button class="btn danger" data-act="${act}">Bevestigen</button><button class="btn" data-act="close-sheet">Annuleren</button>`);
@@ -787,7 +848,7 @@ function sheetDymeCats() {
   const ids = new Set(S.dyme.map(d => d.id));
   const todo = Object.entries(cats).filter(([c]) => !(S.catMap[c] === '__ignore' || ids.has(S.catMap[c])));
   if (!todo.length) return doImport({});
-  openSheet('Nieuwe categorieën', `<p class="hint">Deze Dyme-categorieën ken ik nog niet. Koppel ze aan een Dyme-budget; dit wordt onthouden.</p>` +
+  openSheet('Nieuwe categorieën', `<p class="hint">Deze Dyme-categorieën ken ik nog niet. Koppel ze aan een maandbudget; dit wordt onthouden.</p>` +
     todo.sort((a, b) => b[1].amt - a[1].amt).map(([c, v]) => `<div class="map-row"><span class="c">${esc(c)}<small>${v.n}× · ${eur(v.amt)}</small></span><select data-map="${esc(c)}">${mapOptions(autoMap(c, v.amt))}</select></div>`).join('') +
     `<button class="btn primary" data-act="imp-do">Importeren</button>`, { closeLabel: 'Annuleer' });
 }
@@ -860,7 +921,7 @@ async function onBudgetFile(file) {
       <div class="kv"><span>Overboekingen</span><b>${eur(sum(t.overboeking))}</b></div>
       <div class="kv"><span>Naar spaarrekening${hasRest ? ' (incl. restpost)' : ''}</span><b>${eur(sum(t.sparen))}</b></div>
       <div class="kv total"><span>Vrije ruimte</span><b>${eur(sum(vrij))}</b></div>
-      <div class="kv"><span>Dyme-budgetten (${dyme.length})</span><b>${eur(dymeDoel)}</b></div>
+      <div class="kv"><span>Maandbudgetten (${dyme.length})</span><b>${eur(dymeDoel)}</b></div>
       <div class="kv"><span>Jaarbudgetten (${pots.filter(p => p.vrij).length})</span><b>${eur(vrijPotDoel)}</b></div>
       <div class="kv"><span>Spaarposten (${pots.filter(p => !p.vrij).length})</span><b>${eur(sum(pots.filter(p => !p.vrij).map(p => p.doel)))}</b></div></div>
       ${Math.abs(sum(vrij) - dymeDoel - vrijPotDoel) > 1 ? `<p class="hint wrn">Let op: vrije ruimte en budgetten verschillen ${eurS(sum(vrij) - dymeDoel - vrijPotDoel)}.</p>` : ''}
@@ -1042,7 +1103,7 @@ const ACT = {
     for (const p of keepPots) if (!pots.some(x => x.id === p.id)) pots.push(p);
     for (const p of [{ id: 'gez', name: 'Gezamenlijke rekening (extra)' }, { id: 'cap', name: 'Belegging/Capex' }]) if (!pots.some(x => normName(x.name) === normName(p.name))) pots.push({ ...p, doel: 0, grens: 0, acct: 'spaar', vrij: false });
     pots.sort((a, b) => (a.sys ? 1 : 0) - (b.sys ? 1 : 0) || (b.vrij - a.vrij));
-    S.lines = lines; S.dyme = dyme; S.pots = pots;
+    S.lines = lines; S.dyme = dyme; S.pots = pots; S.baseline = null;
     for (const d of dyme) for (const c of d.cats || []) S.catMap[c] = d.id;
     if (yr > 2000 && yr < 2100) S.settings.year = yr;
     IMP = null; save(); closeSheet(); ui.tab = 'budget'; ui.budMode = 'jaar'; render(); toast('Budget ingelezen');
@@ -1057,8 +1118,10 @@ const ACT = {
   'wipe-do': () => { S = defaultState(); save(); closeSheet(); ui.tab = 'dash'; render(); toast('Gewist'); },
   'clear-tx': () => confirmSheet('Transacties wissen?', 'Alle ingelezen Dyme-transacties worden verwijderd. Budgetten, koppelingen en mutaties blijven.', 'clear-tx-do'),
   'clear-tx-do': () => { S.tx = []; S.lastImport = null; save(); closeSheet(); render(); toast('Transacties gewist'); },
+  rebase: () => confirmSheet('Prognose begin jaar vastzetten?', 'De lijn "prognose begin jaar" in de grafiek wordt vervangen door je huidige plan.', 'rebase-do'),
+  'rebase-do': () => { S.baseline = null; model(); save(); closeSheet(); render(); toast('Vastgezet'); },
   'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor 31 december wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
-  'new-year-do': () => { const m = model(); S.settings.startSavings = r2(m.eind + (plan().sparen[0] || 0)); S.settings.year += 1; save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
+  'new-year-do': () => { const m = model(); S.settings.startSavings = r2(m.eind + (plan().sparen[0] || 0)); S.settings.year += 1; S.baseline = null; save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
 };
 function updateGridTotal(g) { const t = $(`#grid-total-${g}`); if (t) t.textContent = eur(sum(gridVals(g))); const j = $(`#d-${g}-j`); if (j && (g === 'doel' || g === 'grens') && document.activeElement !== j) j.value = numIn(sum(gridVals(g))); }
 
