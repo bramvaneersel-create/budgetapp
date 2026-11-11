@@ -590,7 +590,6 @@ function renderSpaar(m) {
 function renderInstel(m) {
   const st = S.settings, P = m.P;
   let h = header('Instellingen', 'Jaarbudget');
-  h += `<h2>Taal</h2><div class="seg"><button data-act="lang" data-l="nl" class="${st.lang !== 'en' ? 'on' : ''}" translate="no">Nederlands</button><button data-act="lang" data-l="en" class="${st.lang === 'en' ? 'on' : ''}" translate="no">English</button></div>`;
   h += `<h2>Boekjaar</h2>
     <div class="fld-row"><label class="fld"><span>Boekjaar</span><input type="number" inputmode="numeric" data-set="year" value="${st.year}"></label>
     <label class="fld"><span>Salaris op dag</span><input type="number" inputmode="numeric" min="1" max="28" data-set="payday" value="${st.payday}"></label></div>
@@ -618,6 +617,7 @@ function renderInstel(m) {
   h += `<h2>Gegevens</h2><div class="card tight">
     <button class="list-btn" data-act="demo"><span>Demogegevens laden</span><span class="r"></span></button>
     <button class="list-btn danger" data-act="wipe"><span>Alles wissen</span><span class="r"></span></button></div>`;
+  h += `<div class="card tight" style="margin-top:24px"><button class="list-btn" data-act="sheet-lang"><span>Taal kiezen</span><span class="r" translate="no">${st.lang === 'en' ? 'English' : 'Nederlands'}</span></button></div>`;
   return h;
 }
 
@@ -1177,7 +1177,9 @@ const ACT = {
   'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
-  lang: el => { S.settings.lang = el.dataset.l; setLangFormats(S.settings.lang); document.documentElement.lang = S.settings.lang; save(); render(); },
+  'sheet-lang': () => openSheet('Taal kiezen', `<div class="card tight">${[['nl', 'Nederlands'], ['en', 'English']].map(([l, n]) =>
+    `<button class="list-btn plain lang-opt" data-act="lang" data-l="${l}"><span translate="no">${n}</span><span class="r">${(S.settings.lang || 'nl') === l ? '✓' : ''}</span></button>`).join('')}</div>`),
+  lang: el => { closeSheet(); S.settings.lang = el.dataset.l; setLangFormats(S.settings.lang); document.documentElement.lang = S.settings.lang; save(); render(); },
   sort: el => { S.settings.sort = el.dataset.s; save(); render(); },
   'plan-month': el => { ui.planMonth = +el.dataset.k; render(); },
   'edit-line': el => sheetLine(el.dataset.id),

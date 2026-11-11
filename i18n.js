@@ -6,7 +6,7 @@ window.I18N_EN = [
   ['Overzicht', 'Overview'], ['Budgetten', 'Budgets'], ['Spaarrekening', 'Savings'], ['Instellingen', 'Settings'],
   ['Boekjaar', 'Budget year'], ['Boekjaar {}', 'Budget year {}'], ['Boekjaar {} begint', 'Budget year {} starts'],
   ['Boekjaar {} is afgelopen', 'Budget year {} has ended'], ['Boekjaar {} starten?', 'Start budget year {}?'],
-  ['Taal', 'Language'], ['Budget', 'Budget'], ['Back-up', 'Backup'], ['Privacy', 'Privacy'], ['Gegevens', 'Data'], ['Dyme', 'Dyme'],
+  ['Taal', 'Language'], ['Taal kiezen', 'Choose language'], ['Budget', 'Budget'], ['Back-up', 'Backup'], ['Privacy', 'Privacy'], ['Gegevens', 'Data'], ['Dyme', 'Dyme'],
 
   // welkom / demo
   ['Welkom.', 'Welcome.'], ['Lees je jaarbudget in, of bekijk de app eerst met demogegevens.', 'Import your yearly budget, or explore the app with demo data first.'],

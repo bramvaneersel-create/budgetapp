@@ -255,3 +255,4 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
   .splash .seg:not(.bg){animation:none;opacity:1}
   .splash-ring,.splash-text{animation:none;opacity:1}
 }
+.lang-opt .r{color:var(--accent);font-weight:700}
