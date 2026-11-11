@@ -120,9 +120,13 @@ function plan() {
   const vp = S.pots.filter(p => p.vrij);
   t.potDoel = sum(vp.map(p => p.doel)); t.potGrens = sum(vp.map(p => +p.grens || +p.doel));
   // Restpost (bijv. 'Vrij'): krijgt automatisch wat overblijft na vaste posten en het budget voor de vrije ruimte
-  t.budgetM = t.dd.map(v => v + t.potDoel / 12);
+  t.budgetM = t.dd.map(v => v + t.potDoel / 12);   // volledige vrije ruimte (maand- + jaarbudgetten)
+  // De restpost houdt alleen geld op de lopende rekening voor wat je daar ook van betaalt;
+  // jaarbudgetten die je van je spaarrekening betaalt (bijv. vakantie) gaan mee met de storting.
+  const lopPot = sum(vp.filter(p => p.acct === 'lopend').map(p => p.doel)) / 12;
+  t.keepM = t.dd.map(v => v + lopPot);
   t.restM = z12(); t.restLine = S.lines.find(l => l.rest && l.type === 'sparen') || null;
-  if (t.restLine) for (let k = 0; k < 12; k++) { t.restM[k] = r2(t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - t.budgetM[k]); t.sparen[k] += t.restM[k]; }
+  if (t.restLine) for (let k = 0; k < 12; k++) { t.restM[k] = r2(t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - t.keepM[k]); t.sparen[k] += t.restM[k]; }
   t.vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k]);       // vrije ruimte per maand
   t.lopDoel = sum(vp.filter(p => p.acct === 'lopend').map(p => p.doel));
   t.jaarDoel = sum(t.dd) + t.potDoel; t.jaarGrens = sum(t.dg) + t.potGrens;
@@ -484,7 +488,7 @@ function renderBudget(m) {
   if (mode === 'periode') {
     const k = Math.min(Math.max(m.cur, 0), 11), p = m.P[k];
     const startS = m.periodStart[k], opn = m.opn[k], uit = m.spaarUitg[k];
-    const ruimte = m.pl.vrij[k] - m.pl.dd[k], jb = m.potVrijK[k], besch = ruimte - jb - opn;
+    const ruimte = m.pl.vrij[k] - m.pl.dd[k], jb = m.lopUitg[k], besch = ruimte - jb - opn;
     const perPot = S.pots.filter(x => x.acct === 'spaar' && !x.sys).map(x => [x.name, sum(S.moves.filter(mv => mv.kind === 'uitgave' && mv.pot === x.id && fromIso(mv.date) >= p.start && fromIso(mv.date) <= p.end).map(mv => mv.amt))]).filter(x => x[1]);
     const nk = k + 1, nDate = nk < 12 ? m.P[nk].start : payday(m.y + 1, 0), dep = m.cur < 0 ? m.pl.sparen[0] : nk < 12 ? m.pl.sparen[nk] : m.pl.sparen[0];
     const saldoNu = startS - opn - uit + (m.kas[k] || 0), naStorting = m.cur < 0 ? m.start : saldoNu + dep;
@@ -492,7 +496,7 @@ function renderBudget(m) {
       <div class="big ${besch >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 8px">${eurS(besch)}</div>
       <div class="kv"><span>Vrije ruimte deze periode</span><b>${eur(m.pl.vrij[k])}</b></div>
       <div class="kv"><span>Maandbudgetten (in Dyme)</span><b>−${eur(m.pl.dd[k])}</b></div>
-      <div class="kv"><span>Jaarbudgetten uitgegeven</span><b>−${eur(jb)}</b></div>
+      <div class="kv"><span>Jaarbudgetten van lopende rekening</span><b>−${eur(jb)}</b></div>
       <div class="kv"><span>Extra opgenomen</span><b>−${eur(opn)}</b></div>
       <div class="divider"></div>
       <div class="kv"><span>Storting ${MONF[nDate.getMonth()]} <small class="sub">(${dLong(nDate)})</small></span><b class="pos">+${eur(dep)}</b></div>
@@ -703,7 +707,7 @@ function sheetLine(id) {
     <label class="fld"><span>Naam</span><input id="l-name" value="${esc(l.name)}" maxlength="60"></label>
     <label class="fld"><span>Soort</span><select id="l-type">${LTYPES.map(([v, t]) => `<option value="${v}"${l.type === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
     <label class="fld"><span>Bedrag</span><select id="l-rest"><option value="0"${!l.rest ? ' selected' : ''}>Vaste bedragen per maand</option><option value="1"${l.rest ? ' selected' : ''}>Restpost: wat overblijft (alleen bij sparen)</option></select></label>
-    ${l.rest ? `<p class="hint">Dit bedrag rekent de app elke maand zelf uit: inkomen − vaste lasten − overboekingen − overig sparen − budget vrije ruimte. Pas je een budget aan, dan verandert deze storting mee.</p>
+    ${l.rest ? `<p class="hint">Dit bedrag rekent de app elke maand zelf uit: inkomen − vaste lasten − overboekingen − overig sparen − maandbudgetten − jaarbudgetten van je lopende rekening. Jaarbudgetten die je van je spaarrekening betaalt (zoals vakantie) gaan mee met deze storting. Pas je een budget aan, dan verandert deze storting mee.</p>
     <div class="month-grid">${MON.map((n, i) => `<label><span>${n}</span><input disabled value="${numIn(plan().restM[i])}"></label>`).join('')}</div>` : `
     ${rangeTool('m', 'Bedrag voor meerdere maanden')}
     <div class="row" style="margin:12px 4px 8px"><span class="lbl">Bedrag per maand</span><span class="sub" style="font-size:13px">jaar <b id="grid-total-m">${eur(sum(l.m))}</b></span></div>
@@ -1014,8 +1018,9 @@ async function onBudgetFile(file) {
     for (const l of lines) for (let k = 0; k < 12; k++) t[l.type][k] += l.m[k];
     for (const e of extra) t.inkomen[e.k] += e.amt;
     const vrijPotDoel = sum(pots.filter(p => p.vrij).map(p => p.doel)), dymeDoel = sum(dyme.map(d => sum(d.doel)));
+    const lopPotDoel = sum(pots.filter(p => p.vrij && p.acct === 'lopend').map(p => p.doel));
     const hasRest = lines.some(l => l.rest);
-    if (hasRest) for (let k = 0; k < 12; k++) t.sparen[k] += t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - (sum(dyme.map(d => d.doel[k])) + vrijPotDoel / 12);
+    if (hasRest) for (let k = 0; k < 12; k++) t.sparen[k] += t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - (sum(dyme.map(d => d.doel[k])) + lopPotDoel / 12);
     const vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k]);
     const suggestY = today().getMonth() >= 9 ? today().getFullYear() + 1 : today().getFullYear();
     openSheet('Budget inlezen', `<div class="card tight">
@@ -1028,7 +1033,7 @@ async function onBudgetFile(file) {
       <div class="kv"><span>Jaarbudgetten (${pots.filter(p => p.vrij).length})</span><b>${eur(vrijPotDoel)}</b></div>
       ${ignore.length ? `<div class="kv"><span>Dyme-categorieën negeren</span><b>${ignore.length}</b></div>` : ''}
       <div class="kv"><span>Spaarposten (${pots.filter(p => !p.vrij).length})</span><b>${eur(sum(pots.filter(p => !p.vrij).map(p => p.doel)))}</b></div></div>
-      ${Math.abs(sum(vrij) - dymeDoel - vrijPotDoel) > 1 ? `<p class="hint wrn">Let op: vrije ruimte en budgetten verschillen ${eurS(sum(vrij) - dymeDoel - vrijPotDoel)}.</p>` : ''}
+      ${!hasRest && Math.abs(sum(vrij) - dymeDoel - lopPotDoel) > 1 ? `<p class="hint wrn">Let op: vrije ruimte en budgetten verschillen ${eurS(sum(vrij) - dymeDoel - lopPotDoel)}.</p>` : ''}
       ${skip.length ? `<p class="hint">Overgeslagen: ${skip.map(esc).join(', ')}</p>` : ''}
       <label class="fld"><span>Boekjaar</span><input id="b-year" type="number" inputmode="numeric" value="${suggestY}"></label>
       <p class="hint">Je huidige budget wordt vervangen. Dyme-transacties, koppelingen en mutaties blijven bewaard.</p>

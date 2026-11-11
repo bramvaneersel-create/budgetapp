@@ -129,7 +129,8 @@ window.I18N_EN = [
   // sheets: posten en budgetten
   ['Nieuwe post', 'New item'], ['Naam', 'Name'], ['Vaste bedragen per maand', 'Fixed amounts per month'],
   ['Restpost: wat overblijft (alleen bij sparen)', 'Remainder: whatever is left (savings only)'],
-  ['Dit bedrag rekent de app elke maand zelf uit: inkomen − vaste lasten − overboekingen − overig sparen − budget vrije ruimte. Pas je een budget aan, dan verandert deze storting mee.', 'The app calculates this amount every month: income − fixed costs − transfers − other savings − spending room budget. If you change a budget, this deposit changes with it.'],
+  ['Dit bedrag rekent de app elke maand zelf uit: inkomen − vaste lasten − overboekingen − overig sparen − maandbudgetten − jaarbudgetten van je lopende rekening. Jaarbudgetten die je van je spaarrekening betaalt (zoals vakantie) gaan mee met deze storting. Pas je een budget aan, dan verandert deze storting mee.', 'The app calculates this amount every month: income − fixed costs − transfers − other savings − monthly budgets − yearly budgets paid from your current account. Yearly budgets paid from savings (such as holidays) are included in this deposit. If you change a budget, this deposit changes with it.'],
+  ['Jaarbudgetten van lopende rekening', 'Yearly budgets from current account'],
   ['Bedrag voor meerdere maanden', 'Amount for several months'], ['Bedrag per maand', 'Amount per month'], ['jaar', 'year'], ['€ bedrag', '€ amount'],
   ['t/m', 'to'], ['Zet', 'Set'], ['Nieuw maandbudget', 'New monthly budget'], ['Doel per jaar', 'Goal per year'], ['Grens per jaar', 'Limit per year'],
   ['Gelijk over 12 maanden verdelen', 'Spread evenly over 12 months'], ['Doel voor meerdere maanden', 'Goal for several months'],
