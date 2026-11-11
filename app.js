@@ -5,12 +5,20 @@
 
 /* ───────────── basis ───────────── */
 const KEY = 'jaarbudget.v2';
-const MON = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
-const MONF = ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
-const WD = ['zo','ma','di','wo','do','vr','za'];
+const MON_NL = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+const MON_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const LANG = {
+  nl: { mon: MON_NL, monf: ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'], wd: ['zo','ma','di','wo','do','vr','za'], loc: 'nl-NL', dec: ',' },
+  en: { mon: MON_EN, monf: ['January','February','March','April','May','June','July','August','September','October','November','December'], wd: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], loc: 'en-IE', dec: '.' }
+};
+let MON, MONF, WD, nf0, nf2, DEC, LOC, LANG_CUR = 'nl';
+function setLangFormats(l) {
+  const L = LANG[l] || LANG.nl; LANG_CUR = LANG[l] ? l : 'nl'; MON = L.mon; MONF = L.monf; WD = L.wd; DEC = L.dec; LOC = L.loc;
+  nf0 = new Intl.NumberFormat(L.loc, {style:'currency', currency:'EUR', maximumFractionDigits:0, minimumFractionDigits:0});
+  nf2 = new Intl.NumberFormat(L.loc, {style:'currency', currency:'EUR', minimumFractionDigits:2, maximumFractionDigits:2});
+}
+setLangFormats('nl');
 const LTYPES = [['inkomen','Inkomen'],['vast','Vaste lasten'],['sparen','Naar spaarrekening'],['overboeking','Overboeking']];
-const nf0 = new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', maximumFractionDigits:0, minimumFractionDigits:0});
-const nf2 = new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', minimumFractionDigits:2, maximumFractionDigits:2});
 const eur = v => nf0.format(Math.round(v) || 0);
 const eur2 = v => nf2.format(v || 0);
 const eurS = v => (Math.round(v) > 0 ? '+' : '') + eur(v);
@@ -22,7 +30,7 @@ const sum = a => a.reduce((x, y) => x + (+y || 0), 0);
 const r2 = v => Math.round(v * 100) / 100;
 const z12 = () => Array(12).fill(0);
 const stdev = a => { if (a.length < 2) return 0; const m = sum(a) / a.length; return Math.sqrt(sum(a.map(x => (x - m) ** 2)) / (a.length - 1)); };
-const numIn = v => String(Math.round((+v || 0) * 100) / 100).replace('.', ',');
+const numIn = v => String(Math.round((+v || 0) * 100) / 100).replace('.', DEC);
 
 const D = (y, m, d) => new Date(y, m, d, 12);
 const iso = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
@@ -38,7 +46,7 @@ const KAS = { id: 'kas', name: 'Kasverschil', doel: 0, grens: 0, acct: 'spaar', 
 function defaultState() {
   return {
     version: 2,
-    settings: { year: today().getFullYear(), payday: 15, startSavings: 0, interest: 2 },
+    settings: { year: today().getFullYear(), payday: 15, startSavings: 0, interest: 2, lang: LANG_CUR },
     lines: [],   // inkomen / vast / sparen / overboeking, bedrag per maand
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
     pots: [ { id: 'gez', name: 'Gezamenlijke rekening (extra)', doel: 0, grens: 0, acct: 'spaar', vrij: false },
@@ -61,6 +69,7 @@ function load() {
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
 let S = load();
+setLangFormats(S.settings.lang);
 const ui = { tab: 'dash', budMode: 'periode', sel: null, planMonth: null };
 
 /* ───────────── salarisdag: 15e, of de werkdag ervoor (weekend/feestdag) ───────────── */
@@ -382,6 +391,8 @@ function header(title, eyebrow) {
   return `<header class="top"><div><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1></div></header>` +
     (S.demo ? `<div class="banner"><span>Je bekijkt demogegevens.</span><button data-act="wipe">Wissen</button></div>` : '');
 }
+const EN = () => S.settings.lang === 'en';
+const L = (nl, en) => EN() ? en : nl;
 const vrijPots = () => S.pots.filter(p => p.vrij);
 const spaarPosts = () => S.pots.filter(p => !p.vrij);
 
@@ -409,7 +420,7 @@ function renderDash(m) {
       <div class="period-head"><div><div class="lbl">Deze periode · maandbudgetten</div><div style="font-weight:600">${dShort(p.start)} – ${dShort(p.end)}</div></div></div>
       <div class="spent-line"><span class="mid money">${eur(spent)}</span><span class="sub">van ${eur(doel)} · grens ${eur(grens)}</span></div>
       ${bar(spent, doel, grens, doel * m.frac)}
-      <div class="sub" style="margin-top:10px">${left >= 0 ? `Nog <b class="pos">${eur(left)}</b> tot je doel · ca. ${eur(left / Math.max(1, daysTo))} per dag`
+      <div class="sub" style="margin-top:10px">${left >= 0 ? L(`Nog <b class="pos">${eur(left)}</b> tot je doel · ca. ${eur(left / Math.max(1, daysTo))} per dag`, `<b class="pos">${eur(left)}</b> left until your goal · approx. ${eur(left / Math.max(1, daysTo))} per day`)
         : spent <= grens ? `<b class="wrn">${eur(-left)}</b> boven doel · nog ${eur(grens - spent)} tot je grens` : `<b class="neg">${eur(spent - grens)}</b> boven je grens`}</div>
       ${!m.hasData ? '<div class="hint" style="margin:8px 0 0">Nog geen Dyme-gegevens voor deze periode</div>' : ''}</div>`;
   } else if (m.cur > 11) {
@@ -450,7 +461,7 @@ function jaarBudgetsHtml(m, compact) {
       return { name: d.name, doel, html: budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'maand', act: compact ? null : 'edit-dyme', id: d.id }) }; }),
     ...vrijPots().map(p => ({ name: p.name, doel: +p.doel || 0, html: budgetRow(p.name, m.potSpent[p.id] || 0, +p.doel, +p.grens || +p.doel, { pace: (+p.doel) * pace, act: compact ? null : 'edit-pot', id: p.id }) }))];
   const so = S.settings.sort || 'groot';
-  if (so === 'naam') items.sort((a, b) => a.name.localeCompare(b.name, 'nl', { sensitivity: 'base' }));
+  if (so === 'naam') items.sort((a, b) => a.name.localeCompare(b.name, LOC, { sensitivity: 'base' }));
   else if (so === 'groot') items.sort((a, b) => b.doel - a.doel);
   if (!compact) h += `<div class="seg small"><button data-act="sort" data-s="groot" class="${so === 'groot' ? 'on' : ''}">Omvang</button><button data-act="sort" data-s="naam" class="${so === 'naam' ? 'on' : ''}">A–Z</button><button data-act="sort" data-s="soort" class="${so === 'soort' ? 'on' : ''}">Soort</button></div>`;
   h += `<div class="card tight">` + items.map(i => i.html).join('') + `</div>`;
@@ -550,7 +561,7 @@ function renderSpaar(m) {
   h += `<div class="card"><div class="lbl" style="margin-bottom:4px">Prognose 31 december</div>
     <div class="kv"><span>Startsaldo (na storting jan)</span><b>${eur(m.start)}</b></div>
     <div class="kv"><span>Stortingen feb–dec</span><b>+${eur(m.deposits)}</b></div>
-    <div class="kv"><span>Rente (${String(S.settings.interest).replace('.', ',')}%)</span><b>+${eur(m.rente)}</b></div>
+    <div class="kv"><span>Rente (${String(S.settings.interest).replace('.', DEC)}%)</span><b>+${eur(m.rente)}</b></div>
     <div class="kv"><span>Opgenomen</span><b>−${eur(sum(m.opn))}</b></div>
     <div class="kv"><span>Verwacht nog op te nemen</span><b>−${eur(sum(m.predOpn))}</b></div>
     <div class="kv"><span>Uitgaven van spaarrekening</span><b>−${eur(sum(m.spaarUitg))}</b></div>
@@ -579,6 +590,7 @@ function renderSpaar(m) {
 function renderInstel(m) {
   const st = S.settings, P = m.P;
   let h = header('Instellingen', 'Jaarbudget');
+  h += `<h2>Taal</h2><div class="seg"><button data-act="lang" data-l="nl" class="${st.lang !== 'en' ? 'on' : ''}" translate="no">Nederlands</button><button data-act="lang" data-l="en" class="${st.lang === 'en' ? 'on' : ''}" translate="no">English</button></div>`;
   h += `<h2>Boekjaar</h2>
     <div class="fld-row"><label class="fld"><span>Boekjaar</span><input type="number" inputmode="numeric" data-set="year" value="${st.year}"></label>
     <label class="fld"><span>Salaris op dag</span><input type="number" inputmode="numeric" min="1" max="28" data-set="payday" value="${st.payday}"></label></div>
@@ -609,16 +621,43 @@ function renderInstel(m) {
   return h;
 }
 
+/* ───────────── vertaling ─────────────
+   De app is in het Nederlands geschreven; in het Engels vertaalt deze laag de teksten op het scherm
+   met de woordenlijst in i18n.js. {} in een sleutel staat voor een variabel deel (bedrag, datum, naam). */
+const TR_EXACT = new Map(), TR_PAT = [];
+for (const [nl, en] of (window.I18N_EN || [])) {
+  if (!nl.includes('{}')) { TR_EXACT.set(nl, en); continue; }
+  const re = new RegExp('^' + nl.split('{}').map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('([\\s\\S]+?)') + '$');
+  TR_PAT.push([re, en, nl.replace(/\{\}/g, '').length]);
+}
+TR_PAT.sort((a, b) => b[2] - a[2]);
+function T(s, depth = 0) {
+  if (!EN() || s == null) return s;
+  const str = String(s), t = str.trim(); if (!t || depth > 3) return str;
+  let r = TR_EXACT.get(t);
+  if (r === undefined) for (const [re, en] of TR_PAT) { const mm = t.match(re); if (mm) { let i = 1; r = en.replace(/\{\}/g, () => T(mm[i++], depth + 1)); break; } }
+  return r === undefined ? str : str.replace(t, r);
+}
+function trDom(root) {
+  if (!EN() || !root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement && n.parentElement.closest('[translate="no"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const nodes = []; let n; while ((n = w.nextNode())) nodes.push(n);
+  for (const x of nodes) { const v = T(x.nodeValue); if (v !== x.nodeValue) x.nodeValue = v; }
+  root.querySelectorAll('[placeholder],[aria-label]').forEach(e => { for (const a of ['placeholder', 'aria-label']) { const v = e.getAttribute(a); if (v) e.setAttribute(a, T(v)); } });
+}
 function render() {
   const m = model();
+  document.documentElement.lang = S.settings.lang || 'nl';
   $('#main').innerHTML = ui.tab === 'budget' ? renderBudget(m) : ui.tab === 'spaar' ? renderSpaar(m) : ui.tab === 'instel' ? renderInstel(m) : renderDash(m);
-  $$('#tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
+  $$('#tabbar button').forEach(b => { b.classList.toggle('on', b.dataset.tab === ui.tab); const sp = $('span', b); if (sp) { sp.dataset.nl = sp.dataset.nl || sp.textContent; sp.textContent = T(sp.dataset.nl); } });
+  trDom($('#main'));
 }
 
 /* ───────────── sheets ───────────── */
 function openSheet(title, body, opts = {}) {
   $('#sheet-root').innerHTML = `<div class="backdrop" data-act="close-sheet"></div><div class="sheet" role="dialog" aria-label="${esc(title)}"><div class="grab"></div>
     <div class="sheet-head"><h3>${esc(title)}</h3><button data-act="close-sheet">${opts.closeLabel || 'Sluit'}</button></div><div id="sheet-body">${body}</div></div>`;
+  trDom($('#sheet-root'));
   const f = $('#sheet-root [autofocus]'); if (f) setTimeout(() => f.focus(), 250);
 }
 function closeSheet() { $('#sheet-root').innerHTML = ''; }
@@ -923,24 +962,24 @@ function doImport(newMap) {
 /* Budget-import. Kolommen: Soort; Categorie; Rekening; Doel; Grens; jan … dec; Dyme-categorieën */
 function typeFromText(s) {
   s = String(s).toLowerCase().trim();
-  if (/overig|extra/.test(s) && /inkom/.test(s)) return 'extra';
-  if (/inkom|salaris|loon|bonus/.test(s)) return 'inkomen';
-  if (/negeer|negeren/.test(s)) return 'ignore';
-  if (/dyme|variab|maandbudget/.test(s)) return 'dyme';
-  if (/jaarbudget/.test(s)) return 'pot-vrij';
-  if (/spaarpost|spaarrek|losse/.test(s)) return 'pot-spaar';
-  if (/^sparen.*rest|restpost/.test(s)) return 'sparen-rest';
-  if (/^sparen|spaarplan/.test(s)) return 'sparen';
-  if (/overb/.test(s)) return 'overboeking';
-  if (/vast/.test(s)) return 'vast';
+  if (/overig|extra|other/.test(s) && /inkom|income/.test(s)) return 'extra';
+  if (/inkom|salaris|loon|bonus|income|salary/.test(s)) return 'inkomen';
+  if (/negeer|negeren|ignore/.test(s)) return 'ignore';
+  if (/dyme|variab|maandbudget|monthly budget/.test(s)) return 'dyme';
+  if (/jaarbudget|yearly budget|annual budget/.test(s)) return 'pot-vrij';
+  if (/spaarpost|spaarrek|losse|savings item/.test(s)) return 'pot-spaar';
+  if (/^(sparen|savings).*rest|restpost|remainder/.test(s)) return 'sparen-rest';
+  if (/^sparen|spaarplan|^savings/.test(s)) return 'sparen';
+  if (/overb|transfer/.test(s)) return 'overboeking';
+  if (/vast|fixed/.test(s)) return 'vast';
   return null;
 }
 async function onBudgetFile(file) {
   try {
     const rows = await readTable(file), hdr = rows[0].map(x => String(x));
-    const c = { soort: guessCol(hdr, /^soort|^type/), naam: guessCol(hdr, /categor|naam|^post/), rek: guessCol(hdr, /rekening|account/),
-      doel: guessCol(hdr, /^doel|richtlijn|^budget|^bedrag/), grens: guessCol(hdr, /grens|max|limiet/), dyme: guessCol(hdr, /dyme/),
-      mon: MON.map(n => guessCol(hdr, new RegExp('^' + n))) };
+    const c = { soort: guessCol(hdr, /^soort|^type/), naam: guessCol(hdr, /categor|naam|^post|^name/), rek: guessCol(hdr, /rekening|account/),
+      doel: guessCol(hdr, /^doel|richtlijn|^budget|^bedrag|^target|^goal|^amount/), grens: guessCol(hdr, /grens|max|limiet|^limit/), dyme: guessCol(hdr, /dyme/),
+      mon: MON_NL.map((n, i) => { const a = guessCol(hdr, new RegExp('^' + n)); return a >= 0 ? a : guessCol(hdr, new RegExp('^' + MON_EN[i].toLowerCase())); }) };
     if (c.soort < 0 || c.naam < 0) return toast('Kolommen Soort en Categorie niet gevonden — gebruik het sjabloon');
     const lines = [], dyme = [], pots = [], extra = [], ignore = [], skip = [];
     const val = (r, i) => i >= 0 ? parseNum(r[i]) : NaN;
@@ -961,7 +1000,7 @@ async function onBudgetFile(file) {
           cats: c.dyme >= 0 ? String(r[c.dyme] ?? '').split(/[|]/).map(x => x.trim()).filter(Boolean) : [] });
       } else if (t.startsWith('pot')) {
         const rek = String(c.rek >= 0 ? r[c.rek] : '').toLowerCase();
-        const acct = /spaar/.test(rek) ? 'spaar' : /lopend|betaal|^ing$/.test(rek.trim()) ? 'lopend' : (t === 'pot-vrij' ? 'lopend' : 'spaar');
+        const acct = /spaar|savings/.test(rek) ? 'spaar' : /lopend|betaal|current|checking|^ing$/.test(rek.trim()) ? 'lopend' : (t === 'pot-vrij' ? 'lopend' : 'spaar');
         const dJ = isNaN(doel) ? 0 : Math.abs(doel);
         pots.push({ id: uid(), name, doel: dJ, grens: isNaN(grens) ? dJ : Math.abs(grens), acct, vrij: t === 'pot-vrij' });
       } else {
@@ -997,10 +1036,14 @@ async function onBudgetFile(file) {
   } catch (err) { toast('Kon bestand niet lezen: ' + err.message); }
 }
 function budgetCsv(rowsIn) {
-  const head = ['Soort', 'Categorie', 'Rekening', 'Doel', 'Grens', ...MON, 'Dyme-categorieën'];
-  const f = v => v === '' || v == null ? '' : String(Math.round(v * 100) / 100).replace('.', ',');
+  const head = EN() ? ['Type', 'Category', 'Account', 'Target', 'Limit', ...MON_EN, 'Dyme categories'] : ['Soort', 'Categorie', 'Rekening', 'Doel', 'Grens', ...MON_NL, 'Dyme-categorieën'];
+  const f = v => v === '' || v == null ? '' : String(Math.round(v * 100) / 100).replace('.', DEC);
+  if (EN()) rowsIn = rowsIn.map(r => r.map((x, i) => i === 0 || i === 2 ? (CSV_EN[x] || x) : x));
   return '﻿' + [head, ...rowsIn].map(r => r.map(x => typeof x === 'number' ? f(x) : String(x ?? '')).join(';')).join('\r\n') + '\r\n';
 }
+const CSV_EN = { 'Inkomen': 'Income', 'Vast': 'Fixed', 'Sparen': 'Savings', 'Sparen (rest)': 'Savings (remainder)', 'Overboeking': 'Transfer', 'Dyme': 'Monthly budget',
+  'Negeren': 'Ignore', 'Overige inkomsten': 'Other income', 'Jaarbudget': 'Yearly budget', 'Spaarpost': 'Savings item', 'Lopende rekening': 'Current account', 'Spaarrekening': 'Savings account',
+  'Dyme-categorieën die niet meetellen': 'Dyme categories that do not count' };
 function exportBudgetRows() {
   const T = { inkomen: 'Inkomen', vast: 'Vast', sparen: 'Sparen', overboeking: 'Overboeking' };
   return [...S.lines.map(l => l.rest ? ['Sparen (rest)', l.name, '', '', '', ...Array(12).fill(''), ''] : [T[l.type], l.name, '', '', '', ...l.m, '']),
@@ -1011,6 +1054,20 @@ function exportBudgetRows() {
 }
 function templateCsv() {
   const e = Array(12).fill('');
+  if (EN()) return budgetCsv([
+    ['Inkomen', 'Salary', '', '', '', ...Array(12).fill(3200), ''],
+    ['Inkomen', 'Bonuses', '', '', '', '', '', '', '', 2000, '', '', '', '', '', '', '', ''],
+    ['Overige inkomsten', 'Tax refund', '', '', '', '', '', '', '', '', '', 450, '', '', '', '', '', ''],
+    ['Vast', 'Health insurance', '', 150, '', ...e, ''],
+    ['Overboeking', 'Joint account', '', 1100, '', ...e, ''],
+    ['Overboeking', 'Investments', '', 300, '', ...e, ''],
+    ['Sparen (rest)', 'Savings account', '', '', '', ...e, ''],
+    ['Dyme', 'Eating out', '', 2000, 2800, ...e, 'Restaurants|Bars'],
+    ['Dyme', 'Clothing', '', 900, 1200, ...e, 'Clothing'],
+    ['Jaarbudget', 'Holidays & travel', 'Spaarrekening', 2400, 3300, ...e, ''],
+    ['Jaarbudget', 'Hairdresser', 'Lopende rekening', 300, 300, ...e, ''],
+    ['Spaarpost', 'Joint account (extra)', 'Spaarrekening', '', '', ...e, ''],
+    ['Spaarpost', 'House', 'Spaarrekening', 5000, '', ...e, '']]);
   return budgetCsv([
     ['Inkomen', 'Salaris', '', '', '', ...Array(12).fill(3200), ''],
     ['Inkomen', 'Bonussen', '', '', '', '', '', '', '', 2000, '', '', '', '', '', '', '', ''],
@@ -1074,6 +1131,19 @@ function demo() {
   mv('uitgave', 2, 10, 450, 'Belegging/Capex', 'Nieuwe fiets'); mv('opname', 6, 10, 250); mv('opname', 8, 12, 150);
   const k0 = Math.max(1, Math.min(cur - 1, 11)); if (cur > 1) S.moves.push({ id: uid(), kind: 'kas', date: iso(P[k0].start), amt: -23.4, note: '' });
   S.lastImport = iso(T);
+  if (EN()) { // demo in het Engels: namen vertalen
+    const N = { 'Salaris': 'Salary', 'Bonussen': 'Bonuses', 'Zorgverzekering': 'Health insurance', 'Abonnementen': 'Subscriptions', 'Gezamenlijke rekening': 'Joint account',
+      'Beleggen': 'Investments', 'Spaarrekening': 'Savings account', 'Huis': 'House', 'Uit eten en drinken': 'Eating out', 'Vrije tijd': 'Leisure', 'Kleding en schoenen': 'Clothing',
+      'Overig': 'Other', 'Cadeaus en verjaardagen': 'Gifts', 'Vakantie en reizen': 'Holidays & travel', 'Kapper': 'Hairdresser', 'Huisdier': 'Pet',
+      'Uit eten': 'Restaurants', 'Bar & café': 'Bars', 'Kleding': 'Clothes', 'Cadeaus': 'Presents', 'Inkomen': 'Income', 'Boekhandel': 'Bookshop',
+      'Weekend weg': 'Weekend away', 'Zomervakantie': 'Summer holiday', 'Nieuwe fiets': 'New bike' };
+    const n = x => N[x] || x;
+    for (const o of [...S.lines, ...S.dyme, ...S.pots]) if (!o.sys && !['gez', 'cap'].includes(o.id)) o.name = n(o.name);
+    for (const d of S.dyme) d.cats = d.cats.map(n);
+    for (const t of S.tx) { t.cat = n(t.cat); t.desc = n(t.desc); }
+    for (const mv2 of S.moves) mv2.note = n(mv2.note);
+    S.catMap = Object.fromEntries(Object.entries(S.catMap).map(([k, v]) => [n(k), v]));
+  }
 }
 
 /* ───────────── acties ───────────── */
@@ -1085,7 +1155,7 @@ const ACT = {
   'sheet-opname': () => sheetMove('opname'),
   'sheet-uitgave': el => sheetMove('uitgave', el.dataset.pot),
   'sheet-saldo': () => sheetSaldo(),
-  'pick-pot': el => { movePot = el.dataset.id; $$('.chips button').forEach(b => b.classList.toggle('on', b === el)); const h = $('#pot-hint'); if (h) h.textContent = potHint(S.pots.find(p => p.id === movePot)); },
+  'pick-pot': el => { movePot = el.dataset.id; $$('.chips button').forEach(b => b.classList.toggle('on', b === el)); const h = $('#pot-hint'); if (h) h.textContent = T(potHint(S.pots.find(p => p.id === movePot))); },
   'save-move': el => {
     const amt = parseNum(val('#f-amt')), date = val('#f-date'), kind = el.dataset.kind;
     if (!(amt > 0)) return toast('Vul een bedrag in'); if (!date) return toast('Vul een datum in');
@@ -1107,6 +1177,7 @@ const ACT = {
   'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
+  lang: el => { S.settings.lang = el.dataset.l; setLangFormats(S.settings.lang); document.documentElement.lang = S.settings.lang; save(); render(); },
   sort: el => { S.settings.sort = el.dataset.s; save(); render(); },
   'plan-month': el => { ui.planMonth = +el.dataset.k; render(); },
   'edit-line': el => sheetLine(el.dataset.id),
@@ -1187,7 +1258,7 @@ const ACT = {
     if (yr > 2000 && yr < 2100) S.settings.year = yr;
     IMP = null; save(); closeSheet(); ui.tab = 'budget'; ui.budMode = 'jaar'; render(); toast('Budget ingelezen');
   },
-  'budget-template': () => saveFile('jaarbudget-sjabloon.csv', templateCsv(), 'text/csv'),
+  'budget-template': () => saveFile(EN() ? 'budget-template.csv' : 'jaarbudget-sjabloon.csv', templateCsv(), 'text/csv'),
   'budget-export': () => saveFile(`jaarbudget-${S.settings.year}.csv`, budgetCsv(exportBudgetRows()), 'text/csv'),
   backup: () => saveFile(`jaarbudget-backup-${iso(today())}.json`, JSON.stringify(S), 'application/json'),
   'info-prognose': () => sheetInfo(),
@@ -1211,7 +1282,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.grid) updateGridTotal(t.dataset.grid);
-  if (t.id === 'f-saldo') { const v = parseNum(t.value), p = $('#kas-preview'); if (p) p.textContent = isNaN(v) ? '' : `Kasverschil: ${eurS(v - model().savingsNow)}`; }
+  if (t.id === 'f-saldo') { const v = parseNum(t.value), p = $('#kas-preview'); if (p) p.textContent = isNaN(v) ? '' : T(`Kasverschil: ${eurS(v - model().savingsNow)}`); }
 });
 document.addEventListener('change', e => {
   const t = e.target;
@@ -1236,7 +1307,7 @@ document.addEventListener('change', e => {
 });
 
 let toastT;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
+function toast(msg) { const t = $('#toast'); t.textContent = T(msg); t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
 render();
