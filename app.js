@@ -1240,6 +1240,16 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
 render();
+// Opstartanimatie: ring loopt rond, daarna "Welcome back." en de app verschijnt. Tik om over te slaan.
+(() => {
+  const sp = $('#splash'); if (!sp) return;
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let gone = false;
+  const hide = () => { if (gone) return; gone = true; sp.classList.add('out'); setTimeout(() => sp.remove(), 500); };
+  if (!reduce) setTimeout(() => { const r = $('.splash-ring', sp); if (r) r.classList.add('done'); }, 1550);
+  setTimeout(hide, reduce ? 900 : 2500);
+  sp.addEventListener('click', hide);
+})();
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 window.__jb = { parseNum, parseDate, model, periods, payday, plan, get S() { return S; } };
