@@ -256,3 +256,33 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
   .splash-ring,.splash-text{animation:none;opacity:1}
 }
 .lang-opt .r{color:var(--accent);font-weight:700}
+
+/* spaarpotten */
+.pots{display:flex;align-items:center;gap:16px;margin-top:10px}
+.donut-wrap{position:relative;width:132px;flex:none}
+.donut{width:132px;height:132px;display:block}
+.donut-bg{fill:none;stroke:var(--track);stroke-width:14}
+.donut-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.donut-c b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.donut-c span{font-size:11px;color:var(--muted)}
+.pot-legend{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+.pl{display:grid;grid-template-columns:10px 1fr auto;column-gap:8px;align-items:baseline}
+.pl i{width:10px;height:10px;border-radius:3px;align-self:center}
+.pl .n{font-size:14px;line-height:1.25;overflow:hidden;text-overflow:ellipsis}
+.pl b{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.pl small{grid-column:2/4;font-size:12px;color:var(--muted);margin-top:-2px}
+.pl small:empty{display:none}
+.pot-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.pot-row:first-child{border-top:0}
+.pot-row .prio{width:24px;height:24px;border-radius:7px;background:var(--track);color:var(--muted);font-size:13px;font-weight:700;display:grid;place-items:center;flex:none}
+.pot-row .pot-name{flex:1;min-width:0;display:flex;justify-content:space-between;align-items:center;text-align:left;font-size:16px}
+.pot-row .pot-name .chev{color:var(--faint);font-size:20px;margin-left:6px}
+.pot-row .mv-btn{width:34px;height:34px;border-radius:10px;background:var(--card2);color:var(--ink);font-size:12px;flex:none}
+.pot-row .mv-btn:disabled{opacity:.3}
+.sort-row{display:flex;justify-content:flex-end;margin:0 2px 8px}
+.sort-btn{display:inline-flex;align-items:center;gap:6px;background:var(--card);box-shadow:var(--shadow);border-radius:999px;padding:7px 14px;font-size:14px}
+.sort-btn span{color:var(--muted)}
+.sort-btn b{font-weight:600}
+.sort-btn i{font-style:normal;color:var(--muted);font-size:11px}
+.info-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font:italic 700 13px/1 Georgia,"Times New Roman",serif;display:grid;place-items:center;flex:none}
+.sheet .grab{animation:none}

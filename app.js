@@ -147,6 +147,61 @@ function aggregate(P) {
 }
 
 /* ───────────── rekenmodel ───────────── */
+/* ───────────── spaarpotten ─────────────
+   De spaarrekening is verdeeld in potten: Beginstand (saldo begin jaar), Spaar (de rest) en zelf
+   aangemaakte potten die gevuld worden door een storting (bijv. Huis). S.savPots staat in volgorde
+   van prioriteit: bij opnames en uitgaven gaat het geld eerst uit de bovenste pot. */
+const POT_COLORS = ['#2E7D5B', '#A9A49A', '#E0A84E', '#5B8DB8', '#9A7BC2', '#D98B8B', '#62B898'];
+function ensureSavPots() {
+  if (!Array.isArray(S.savPots)) S.savPots = [];
+  if (!S.savPots.some(p => p.sys === 'rest')) S.savPots.unshift({ id: 'rest', sys: 'rest' });
+  if (!S.savPots.some(p => p.sys === 'start')) S.savPots.splice(1, 0, { id: 'start', sys: 'start' });
+  if (!S.savPotsInit && S.lines.length) {
+    const hl = S.lines.find(l => l.type === 'sparen' && !l.rest && /huis|aflos|hypothe|mortgage|house/i.test(l.name));
+    const hp = S.pots.find(p => !p.vrij && !p.sys && /huis|aflos|hypothe|mortgage|house/i.test(p.name));
+    if (hl) S.savPots.push({ id: uid(), name: EN() ? 'Extra mortgage repayment' : 'Extra aflossen hypotheek', line: hl.id, post: hp ? hp.id : null });
+    S.savPotsInit = true;
+  }
+}
+function potName(p, y) { return p.sys === 'rest' ? 'Spaar' : p.sys === 'start' ? `Beginstand ${y}` : p.name; }
+function potsNow(m) {
+  ensureSavPots();
+  const upto = m.cur < 0 ? -1 : Math.min(m.cur, 11), t = iso(m.T), bal = {};
+  for (const p of S.savPots) bal[p.id] = 0;
+  bal.start = m.start;
+  for (const l of S.lines.filter(x => x.type === 'sparen')) {
+    let d = 0; for (let k = 1; k <= upto; k++) d += l.rest ? m.pl.restM[k] : (+l.m[k] || 0);
+    const p = S.savPots.find(x => x.line === l.id); bal[p ? p.id : 'rest'] += d;
+  }
+  bal.rest += m.renteA || 0;
+  let general = 0;
+  for (const mv of S.moves) {
+    if (mv.date > t || fromIso(mv.date).getFullYear() !== m.y) continue;
+    if (mv.kind === 'opname') general += mv.amt;
+    else if (mv.kind === 'kas') { if (mv.amt >= 0) bal.rest += mv.amt; else general -= mv.amt; }
+    else {
+      const sp = S.pots.find(x => x.id === mv.pot); if (!sp || sp.acct !== 'spaar') continue;
+      const tp = S.savPots.find(x => x.post && x.post === sp.id);
+      if (tp) bal[tp.id] -= mv.amt; else general += mv.amt;
+    }
+  }
+  for (const p of S.savPots) { if (general <= 0) break; const take = Math.min(Math.max(bal[p.id], 0), general); bal[p.id] -= take; general -= take; }
+  if (general > 0) bal[S.savPots[S.savPots.length - 1].id] -= general;
+  const users = S.savPots.filter(p => !p.sys);
+  const color = p => p.sys === 'rest' ? POT_COLORS[0] : p.sys === 'start' ? POT_COLORS[1] : POT_COLORS[2 + users.indexOf(p) % (POT_COLORS.length - 2)];
+  return S.savPots.map(p => ({ ...p, label: potName(p, m.y), amt: bal[p.id], color: color(p) }));
+}
+function donut(pots) {
+  const pos = pots.filter(p => p.amt > 0.5), tot = sum(pos.map(p => p.amt)), r = 40, C = 2 * Math.PI * r;
+  let off = 0, s = `<svg viewBox="0 0 100 100" class="donut" role="img" aria-label="Verdeling spaarrekening"><circle cx="50" cy="50" r="${r}" class="donut-bg"/>`;
+  for (const p of pos) {
+    const len = p.amt / tot * C, gap = pos.length > 1 ? Math.min(1.2, len / 3) : 0;
+    s += `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${p.color}" stroke-width="14" stroke-dasharray="${(len - gap).toFixed(2)} ${(C - len + gap).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
+    off += len;
+  }
+  return s + `</svg>`;
+}
+
 function model() {
   const y = +S.settings.year, P = periods(y), T = today(), pl = plan();
   const cur = periodOf(P, T), inYear = cur >= 0 && cur < 12;
@@ -467,7 +522,7 @@ function jaarBudgetsHtml(m, compact) {
   const so = S.settings.sort || 'groot';
   if (so === 'naam') items.sort((a, b) => a.name.localeCompare(b.name, LOC, { sensitivity: 'base' }));
   else if (so === 'groot') items.sort((a, b) => b.doel - a.doel);
-  if (!compact) h += `<div class="seg small"><button data-act="sort" data-s="groot" class="${so === 'groot' ? 'on' : ''}">Omvang</button><button data-act="sort" data-s="naam" class="${so === 'naam' ? 'on' : ''}">A–Z</button><button data-act="sort" data-s="soort" class="${so === 'soort' ? 'on' : ''}">Soort</button></div>`;
+  if (!compact) h += `<div class="sort-row"><button class="sort-btn" data-act="sheet-sort"><span>Sorteren</span><b>${(SORT_OPTS.find(x => x[0] === so) || SORT_OPTS[0])[1]}</b><i>▾</i></button></div>`;
   h += `<div class="card tight">` + items.map(i => i.html).join('') + `</div>`;
   const others = spaarPosts();
   if (others.length) h += `<h2>Overige uitgaven spaarrekening ${m.y}</h2><div class="card tight">` + others.map(p => {
@@ -555,10 +610,14 @@ function renderBudget(m) {
 function renderSpaar(m) {
   let h = header('Spaarrekening', `Boekjaar ${m.y}`);
   const k0 = Math.min(Math.max(m.cur, 0), 11), lastPay = m.P[k0].start, since = m.savingsNow - m.periodStart[k0];
-  h += `<div class="card"><div class="lbl">Saldo per laatste salarisdag · ${dLong(lastPay)}</div>
-    <div class="big" style="margin:6px 0 4px">${eur(m.cur < 0 ? m.start : m.periodStart[k0])}</div>
-    <div class="sub" style="margin-bottom:10px">Inclusief storting${m.inYear && Math.abs(since) >= 0.5 ? ` · sindsdien ${eurS(since)} → nu ${eur(m.savingsNow)}` : ''}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
+  h += `<div class="card"><div class="lbl">Huidige stand</div>
+    <div class="big" style="margin:6px 0 4px">${eur(m.savingsNow)}</div>
+    <div class="sub" style="margin-bottom:10px">${m.cur < 0 ? 'Startsaldo boekjaar' : `Per salarisdag ${dLong(lastPay)}: ${eur(m.periodStart[k0])}`}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
     <button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening invoeren</button></div>`;
+  const pots = potsNow(m), shown = [...pots].sort((a, b) => b.amt - a.amt), tot = sum(pots.map(p => Math.max(0, p.amt)));
+  h += `<div class="card"><div class="row"><div class="lbl">Verdeling spaarpotten</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
+    <div class="pots"><div class="donut-wrap">${donut(pots)}<div class="donut-c"><b>${eur(m.savingsNow)}</b><span>totaal</span></div></div>
+    <div class="pot-legend">${shown.map(p => `<div class="pl"><i style="background:${p.color}"></i><span class="n">${esc(p.label)}</span><b class="${p.amt < -0.5 ? 'neg' : ''}">${eur(p.amt)}</b><small>${tot > 0 && p.amt > 0 ? Math.round(p.amt / tot * 100) + '%' : ''}</small></div>`).join('')}</div></div></div>`;
   h += `<div class="card"><div class="row"><div class="lbl">Verloop spaarrekening ${m.y}</div><span class="sub" style="font-size:12px">${eur(m.eind)} verwacht</span></div>
     ${lineChart(m)}
     <div class="legend"><span><i class="l-base"></i>prognose begin jaar</span><span><i class="l-real"></i>werkelijk</span><span><i class="l-fcl"></i>prognose</span></div></div>`;
@@ -659,7 +718,9 @@ function render() {
 
 /* ───────────── sheets ───────────── */
 function openSheet(title, body, opts = {}) {
-  $('#sheet-root').innerHTML = `<div class="backdrop" data-act="close-sheet"></div><div class="sheet" role="dialog" aria-label="${esc(title)}"><div class="grab"></div>
+  const ex = opts.kind && $(`#sheet-root .sheet[data-kind="${opts.kind}"]`);
+  if (ex) { $('#sheet-body').innerHTML = body; trDom($('#sheet-root')); return; }
+  $('#sheet-root').innerHTML = `<div class="backdrop" data-act="close-sheet"></div><div class="sheet" role="dialog" aria-label="${esc(title)}" data-kind="${opts.kind || ''}"><div class="grab"></div>
     <div class="sheet-head"><h3>${esc(title)}</h3><button data-act="close-sheet">${opts.closeLabel || 'Sluit'}</button></div><div id="sheet-body">${body}</div></div>`;
   trDom($('#sheet-root'));
   const f = $('#sheet-root [autofocus]'); if (f) setTimeout(() => f.focus(), 250);
@@ -756,6 +817,28 @@ function sheetExtra(id) {
     <button class="btn primary" data-act="save-extra" data-id="${e.id}">Opslaan</button>
     ${id ? `<button class="btn danger" data-act="del-extra" data-id="${e.id}">Verwijderen</button>` : ''}`);
 }
+function sheetSavPot(id) {
+  const p = S.savPots.find(x => x.id === id) || { id: '', name: '', line: null, post: null };
+  const lines = S.lines.filter(l => l.type === 'sparen' && !l.rest), posts = S.pots.filter(x => x.acct === 'spaar' && !x.vrij && !x.sys);
+  openSheet(id ? p.name : 'Nieuwe spaarpot', `
+    <label class="fld"><span>Naam</span><input id="sp-name" value="${esc(p.name)}" maxlength="40" placeholder="bijv. Extra aflossen hypotheek"></label>
+    <label class="fld"><span>Gevuld door storting</span><select id="sp-line"><option value="">— geen —</option>${lines.map(l => `<option value="${l.id}"${p.line === l.id ? ' selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+    <label class="fld"><span>Uitgaven uit deze pot</span><select id="sp-post"><option value="">— geen —</option>${posts.map(x => `<option value="${x.id}"${p.post === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+    <p class="hint">De storting die je kiest gaat elke maand in deze pot in plaats van in Spaar. Uitgaven bij de gekozen spaarpost gaan altijd uit deze pot.</p>
+    <button class="btn primary" data-act="save-savpot" data-id="${p.id}">Opslaan</button>
+    ${id ? `<button class="btn danger" data-act="del-savpot" data-id="${p.id}">Verwijderen</button>` : ''}`);
+}
+function sheetPots() {
+  ensureSavPots(); const y = +S.settings.year;
+  openSheet('Spaarpotten', `<div class="card tight">` + S.savPots.map((p, i) => `<div class="pot-row">
+      <span class="prio">${i + 1}</span>
+      <button class="pot-name" ${p.sys ? '' : `data-act="edit-savpot" data-id="${p.id}"`}><span>${esc(potName(p, y))}</span>${p.sys ? '' : '<span class="chev">›</span>'}</button>
+      <button class="mv-btn" data-act="pot-up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''} aria-label="Omhoog">▲</button>
+      <button class="mv-btn" data-act="pot-down" data-id="${p.id}" ${i === S.savPots.length - 1 ? 'disabled' : ''} aria-label="Omlaag">▼</button></div>`).join('') +
+    `<button class="list-btn add-row" data-act="edit-savpot" data-id=""><span>+ Spaarpot toevoegen</span><span class="r"></span></button></div>
+    <p class="hint">Volgorde = prioriteit. Neemt het saldo af door een opname of uitgave, dan gaat het geld eerst uit pot 1, daarna uit pot 2, enzovoort. Uitgaven die bij een pot horen (zoals de aflossing uit de pot Huis) gaan altijd uit die pot.</p>`, { kind: 'pots' });
+}
+const SORT_OPTS = [['groot', 'Omvang'], ['naam', 'A–Z'], ['soort', 'Soort']];
 function dymeCats() { const c = {}; for (const t of S.tx) { c[t.cat] = c[t.cat] || { n: 0, amt: 0, sup: t.sup }; c[t.cat].n++; c[t.cat].amt += t.amt; } return c; }
 function mapOptions(sel) {
   return `<option value=""${!sel ? ' selected' : ''}>— Kies —</option><option value="__ignore"${sel === '__ignore' ? ' selected' : ''}>Negeren</option>` +
@@ -1155,7 +1238,7 @@ function demo() {
 const val = id => $(id)?.value ?? '';
 const gridVals = g => { const v = z12(); $$(`[data-grid="${g}"]`).forEach(i => { const n = parseNum(i.value); v[+i.dataset.k] = isNaN(n) ? 0 : Math.abs(n); }); return v; };
 const ACT = {
-  tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); window.scrollTo(0, 0); },
+  tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); const t = el.dataset.scroll && document.getElementById(el.dataset.scroll); if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0); },
   'close-sheet': () => { closeSheet(); IMP = null; },
   'sheet-opname': () => sheetMove('opname'),
   'sheet-uitgave': el => sheetMove('uitgave', el.dataset.pot),
@@ -1182,10 +1265,25 @@ const ACT = {
   'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
+  'sheet-pots': () => sheetPots(),
+  'edit-savpot': el => sheetSavPot(el.dataset.id),
+  'save-savpot': el => {
+    const name = val('#sp-name').trim(); if (!name) return toast('Vul een naam in');
+    const data = { name, line: val('#sp-line') || null, post: val('#sp-post') || null };
+    for (const o of S.savPots) if (o.id !== el.dataset.id) { if (data.line && o.line === data.line) o.line = null; if (data.post && o.post === data.post) o.post = null; }
+    const p = S.savPots.find(x => x.id === el.dataset.id);
+    if (p) Object.assign(p, data); else S.savPots.push({ id: uid(), ...data });
+    save(); render(); sheetPots(); toast('Opgeslagen');
+  },
+  'del-savpot': el => { S.savPots = S.savPots.filter(p => p.id !== el.dataset.id); save(); render(); sheetPots(); toast('Verwijderd'); },
+  'pot-up': el => { const i = S.savPots.findIndex(p => p.id === el.dataset.id); if (i > 0) { [S.savPots[i - 1], S.savPots[i]] = [S.savPots[i], S.savPots[i - 1]]; save(); render(); sheetPots(); } },
+  'pot-down': el => { const i = S.savPots.findIndex(p => p.id === el.dataset.id); if (i >= 0 && i < S.savPots.length - 1) { [S.savPots[i + 1], S.savPots[i]] = [S.savPots[i], S.savPots[i + 1]]; save(); render(); sheetPots(); } },
+  'sheet-sort': () => openSheet('Sorteren', `<div class="card tight">${SORT_OPTS.map(([k, n]) =>
+    `<button class="list-btn plain lang-opt" data-act="sort" data-s="${k}"><span>${n}</span><span class="r">${(S.settings.sort || 'groot') === k ? '✓' : ''}</span></button>`).join('')}</div>`),
   'sheet-lang': () => openSheet('Taal kiezen', `<div class="card tight">${[['nl', 'Nederlands'], ['en', 'English']].map(([l, n]) =>
     `<button class="list-btn plain lang-opt" data-act="lang" data-l="${l}"><span translate="no">${n}</span><span class="r">${(S.settings.lang || 'nl') === l ? '✓' : ''}</span></button>`).join('')}</div>`),
   lang: el => { closeSheet(); S.settings.lang = el.dataset.l; setLangFormats(S.settings.lang); document.documentElement.lang = S.settings.lang; save(); render(); },
-  sort: el => { S.settings.sort = el.dataset.s; save(); render(); },
+  sort: el => { closeSheet(); S.settings.sort = el.dataset.s; save(); render(); },
   'plan-month': el => { ui.planMonth = +el.dataset.k; render(); },
   'edit-line': el => sheetLine(el.dataset.id),
   'range-apply': el => {
@@ -1259,6 +1357,10 @@ const ACT = {
     for (const p of keepPots) if (!pots.some(x => x.id === p.id)) pots.push(p);
     for (const p of [{ id: 'gez', name: 'Gezamenlijke rekening (extra)' }, { id: 'cap', name: 'Belegging/Capex' }]) if (!pots.some(x => normName(x.name) === normName(p.name))) pots.push({ ...p, doel: 0, grens: 0, acct: 'spaar', vrij: false });
     pots.sort((a, b) => (a.sys ? 1 : 0) - (b.sys ? 1 : 0) || (b.vrij - a.vrij));
+    for (const sp of S.savPots || []) {
+      if (sp.line) { const old = S.lines.find(l => l.id === sp.line), nw = old && lines.find(l => normName(l.name) === normName(old.name)); sp.line = nw ? nw.id : null; }
+    }
+    if (!(S.savPots || []).some(p => !p.sys)) S.savPotsInit = false;
     S.lines = lines; S.dyme = dyme; S.pots = pots; S.extraInc = extra || []; S.baseline = null;
     for (const d of dyme) for (const c of d.cats || []) S.catMap[c] = d.id;
     for (const c of ignore || []) S.catMap[c] = '__ignore';

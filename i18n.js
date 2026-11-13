@@ -101,6 +101,17 @@ window.I18N_EN = [
   ['Gezamenlijke rekening (extra)', 'Joint account (extra)'], ['Belegging/Capex', 'Investment/Capex'],
 
   // instellingen
+  ['Huidige stand', 'Current balance'], ['Startsaldo boekjaar', 'Starting balance budget year'],
+  ['Per salarisdag {}: {}', 'On payday {}: {}'], ['Per salarisdag {}: {} · laatst ingevoerd {}', 'On payday {}: {} · last entered {}'],
+  ['Startsaldo boekjaar · laatst ingevoerd {}', 'Starting balance budget year · last entered {}'],
+  ['Verdeling spaarpotten', 'Savings pots'], ['Beheren', 'Manage'], ['totaal', 'total'], ['Verdeling spaarrekening', 'Savings breakdown'],
+  ['Spaar', 'Savings'], ['Beginstand {}', 'Start of year {}'], ['Extra aflossen hypotheek', 'Extra mortgage repayment'],
+  ['Spaarpotten', 'Savings pots'], ['+ Spaarpot toevoegen', '+ Add savings pot'], ['Omhoog', 'Up'], ['Omlaag', 'Down'],
+  ['Volgorde = prioriteit. Neemt het saldo af door een opname of uitgave, dan gaat het geld eerst uit pot 1, daarna uit pot 2, enzovoort. Uitgaven die bij een pot horen (zoals de aflossing uit de pot Huis) gaan altijd uit die pot.', 'Order = priority. When the balance drops because of a withdrawal or expense, the money comes out of pot 1 first, then pot 2, and so on. Expenses that belong to a pot (such as the repayment from the House pot) always come out of that pot.'],
+  ['Nieuwe spaarpot', 'New savings pot'], ['bijv. Extra aflossen hypotheek', 'e.g. Extra mortgage repayment'],
+  ['Gevuld door storting', 'Filled by deposit'], ['Uitgaven uit deze pot', 'Expenses from this pot'],
+  ['De storting die je kiest gaat elke maand in deze pot in plaats van in Spaar. Uitgaven bij de gekozen spaarpost gaan altijd uit deze pot.', 'The deposit you choose goes into this pot every month instead of Savings. Expenses for the chosen savings item always come out of this pot.'],
+  ['Sorteren', 'Sort'], ['Spaarpotten en prioriteit', 'Savings pots and priority'],
   ['Salaris op dag', 'Salary on day'], ['Saldo spaarrekening na storting januari', 'Savings balance after January deposit'],
   ['Rente spaarrekening (% per jaar)', 'Savings interest (% per year)'],
   ['Het startsaldo mag een schatting zijn; vul het exacte bedrag in zodra je het weet. Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.', 'The starting balance may be an estimate; enter the exact amount once you know it. If payday falls on a weekend or public holiday, the working day before applies.'],
