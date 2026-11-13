@@ -469,7 +469,7 @@ function actionsHtml(withImport) {
   </div>`;
 }
 function header(title, eyebrow) {
-  return `<header class="top"><div><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1></div></header>` +
+  return `<header class="top"><div><div class="eyebrow" aria-hidden="true">&nbsp;</div><h1>${esc(title)}</h1></div></header>` +
     (S.demo ? `<div class="banner"><span>Je bekijkt demogegevens.</span><button data-act="wipe">Wissen</button></div>` : '');
 }
 const EN = () => S.settings.lang === 'en';
@@ -634,12 +634,13 @@ function renderSpaar(m) {
   const k0 = Math.min(Math.max(m.cur, 0), 11), lastPay = m.P[k0].start, since = m.savingsNow - m.periodStart[k0];
   h += `<div class="card"><div class="lbl">Huidige stand</div>
     <div class="big" style="margin:6px 0 4px">${eur(m.savingsNow)}</div>
-    <div class="sub" style="margin-bottom:10px">${m.cur < 0 ? 'Startsaldo boekjaar' : `Per salarisdag ${dLong(lastPay)}: ${eur(m.periodStart[k0])}`}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
-    <button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening invoeren</button></div>`;
+    <div class="sub">${m.cur < 0 ? 'Startsaldo boekjaar' : `Per salarisdag ${dLong(lastPay)}: ${eur(m.periodStart[k0])}`}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
+    <div class="divider" style="margin:14px 0"></div>`;
   const pots = potsNow(m), shown = [...pots].sort((a, b) => b.amt - a.amt), tot = sum(pots.map(p => Math.max(0, p.amt)));
-  h += `<div class="card"><div class="row"><div class="lbl">Verdeling spaarpotten</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
+  h += `<div class="row"><div class="lbl">Verdeling spaarpotten</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
     <div class="pots"><div class="donut-wrap">${donut(pots)}</div>
-    <div class="pot-legend">${shown.map(p => `<div class="pl"><i style="background:${p.color}"></i><span class="n">${esc(p.label)}</span><b class="${p.amt < -0.5 ? 'neg' : ''}">${eur(p.amt)}</b><small>${tot > 0 && p.amt > 0 ? Math.round(p.amt / tot * 100) + '%' : ''}</small></div>`).join('')}</div></div></div>`;
+    <div class="pot-legend">${shown.map(p => `<div class="pl"><i style="background:${p.color}"></i><span class="n">${esc(p.label)}</span><b class="${p.amt < -0.5 ? 'neg' : ''}">${eur(p.amt)}</b><small>${tot > 0 && p.amt > 0 ? Math.round(p.amt / tot * 100) + '%' : ''}</small></div>`).join('')}</div></div>
+    <button class="btn primary" data-act="sheet-saldo" style="margin-top:16px">Saldo spaarrekening invoeren</button></div>`;
   h += `<div class="card"><div class="row"><div class="lbl">Verloop spaarrekening ${m.y}</div><span class="sub" style="font-size:12px">${eur(m.eind)} verwacht</span></div>
     ${lineChart(m)}
     <div class="legend"><span><i class="l-base"></i>prognose begin jaar</span><span><i class="l-real"></i>werkelijk</span><span><i class="l-fcl"></i>prognose</span></div></div>`;
