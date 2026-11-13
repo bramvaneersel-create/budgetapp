@@ -286,3 +286,4 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .sort-btn i{font-style:normal;color:var(--muted);font-size:11px}
 .info-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font:italic 700 13px/1 Georgia,"Times New Roman",serif;display:grid;place-items:center;flex:none}
 .sheet .grab{animation:none}
+.btn:disabled{opacity:.4}

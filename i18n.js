@@ -101,6 +101,12 @@ window.I18N_EN = [
   ['Gezamenlijke rekening (extra)', 'Joint account (extra)'], ['Belegging/Capex', 'Investment/Capex'],
 
   // instellingen
+  ['Saldo wijzigen', 'Edit balance'], ['Berekend saldo op deze datum', 'Calculated balance on this date'],
+  ['Vul het saldo in dat je in Trade Republic ziet op de gekozen datum. Het verschil met het berekende saldo wordt geboekt als', 'Enter the balance you see in Trade Republic on the chosen date. The difference from the calculated balance is recorded as'],
+  ['Op deze datum is al een saldo ingevoerd. Wijzig of verwijder dat via Instellingen → Ingevoerde saldi.', 'A balance has already been entered for this date. Edit or delete it via Settings → Entered balances.'],
+  ['Op deze datum is al een saldo ingevoerd', 'A balance has already been entered for this date'],
+  ['Kies een datum in boekjaar {}', 'Choose a date in budget year {}'], ['Kies een datum in het verleden of vandaag', 'Choose a date in the past or today'],
+  ['Ingevoerde saldi', 'Entered balances'], ['Nog geen saldi ingevoerd.', 'No balances entered yet.'], ['kasverschil {}', 'cash difference {}'],
   ['Huidige stand', 'Current balance'], ['Startsaldo boekjaar', 'Starting balance budget year'],
   ['Per salarisdag {}: {}', 'On payday {}: {}'], ['Per salarisdag {}: {} · laatst ingevoerd {}', 'On payday {}: {} · last entered {}'],
   ['Startsaldo boekjaar · laatst ingevoerd {}', 'Starting balance budget year · last entered {}'],

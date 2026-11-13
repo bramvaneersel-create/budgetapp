@@ -67,7 +67,29 @@ function load() {
   try { localStorage.removeItem('jaarbudget.v1'); } catch (e) {}
   return defaultState();
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
+/* Saldo op een datum (berekend), zonder mutatie excl. Ingevoerde saldi zijn ankers: het kasverschil
+   van elk ingevoerd saldo wordt opnieuw bepaald zodat het saldo op die datum altijd klopt. */
+function balanceAt(d, excl) {
+  const y = +S.settings.year, P = periods(y), pl = plan(), r = (+S.settings.interest || 0) / 100 / 12, start = +S.settings.startSavings || 0;
+  let kd = periodOf(P, fromIso(d)); if (kd < 0) return start; kd = Math.min(kd, 11);
+  const act = z12();
+  for (const m of S.moves) {
+    if (m.id === excl || m.date > d) continue;
+    const t = fromIso(m.date); if (t.getFullYear() !== y) continue;
+    const k = Math.max(0, Math.min(11, periodOf(P, t)));
+    if (m.kind === 'opname') act[k] += m.amt;
+    else if (m.kind === 'kas') act[k] -= m.amt;
+    else { const p = S.pots.find(x => x.id === m.pot); if (p && p.acct === 'spaar') act[k] += m.amt; }
+  }
+  let b = start;
+  for (let k = 0; k <= kd; k++) { b += (k > 0 ? pl.sparen[k] : 0) - act[k]; if (k < kd) b += b * r; }
+  return b;
+}
+const saldoEntries = () => S.moves.filter(m => m.kind === 'kas' && m.saldo != null).sort((a, b) => a.date.localeCompare(b.date));
+function recomputeKas() {
+  for (const e of saldoEntries()) e.amt = r2(e.saldo - balanceAt(e.date, e.id));
+}
+function save() { try { if (S.moves && S.moves.some(m => m.kind === 'kas' && m.saldo != null)) recomputeKas(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
 let S = load();
 setLangFormats(S.settings.lang);
 const ui = { tab: 'dash', budMode: 'periode', sel: null, planMonth: null };
@@ -616,7 +638,7 @@ function renderSpaar(m) {
     <button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening invoeren</button></div>`;
   const pots = potsNow(m), shown = [...pots].sort((a, b) => b.amt - a.amt), tot = sum(pots.map(p => Math.max(0, p.amt)));
   h += `<div class="card"><div class="row"><div class="lbl">Verdeling spaarpotten</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
-    <div class="pots"><div class="donut-wrap">${donut(pots)}<div class="donut-c"><b>${eur(m.savingsNow)}</b><span>totaal</span></div></div>
+    <div class="pots"><div class="donut-wrap">${donut(pots)}</div>
     <div class="pot-legend">${shown.map(p => `<div class="pl"><i style="background:${p.color}"></i><span class="n">${esc(p.label)}</span><b class="${p.amt < -0.5 ? 'neg' : ''}">${eur(p.amt)}</b><small>${tot > 0 && p.amt > 0 ? Math.round(p.amt / tot * 100) + '%' : ''}</small></div>`).join('')}</div></div></div>`;
   h += `<div class="card"><div class="row"><div class="lbl">Verloop spaarrekening ${m.y}</div><span class="sub" style="font-size:12px">${eur(m.eind)} verwacht</span></div>
     ${lineChart(m)}
@@ -671,6 +693,7 @@ function renderInstel(m) {
     <button class="list-btn" data-act="pick-dyme"><span>Export inlezen</span><span class="r">${S.tx.length}</span></button>
     <button class="list-btn" data-act="sheet-catmap"><span>Categorieën koppelen</span><span class="r">${Object.keys(dymeCats()).length}</span></button>
     <button class="list-btn danger" data-act="clear-tx"><span>Transacties wissen</span><span class="r"></span></button></div>`;
+  h += `<h2>Spaarrekening</h2><div class="card tight"><button class="list-btn" data-act="sheet-saldi"><span>Ingevoerde saldi</span><span class="r">${saldoEntries().length}</span></button></div>`;
   h += `<h2>Back-up</h2><div class="card tight">
     <button class="list-btn" data-act="backup"><span>Back-up maken</span><span class="r"></span></button>
     <button class="list-btn" data-act="pick-backup"><span>Back-up terugzetten</span><span class="r"></span></button></div>
@@ -742,14 +765,34 @@ function sheetMove(kind, potId) {
     <label class="fld"><span>Notitie</span><input id="f-note" placeholder="optioneel" maxlength="80"></label>
     <button class="btn primary" data-act="save-move" data-kind="${kind}">Opslaan</button>`);
 }
-function sheetSaldo() {
-  const m = model();
-  openSheet('Saldo spaarrekening', `
-    <p class="hint">Vul het saldo in dat je nu in Trade Republic ziet. Het verschil met het berekende saldo wordt geboekt als <b>Kasverschil</b>, en de prognose rekent vanaf het echte saldo verder.</p>
-    <div class="card tight"><div class="kv"><span>Berekend saldo</span><b>${eur2(m.savingsNow)}</b></div></div>
-    <label class="fld"><span>Werkelijk saldo</span><input id="f-saldo" class="amount" inputmode="decimal" placeholder="€ 0" autofocus></label>
+function sheetSaldo(id) {
+  const e = id ? S.moves.find(x => x.id === id) : null, y = +S.settings.year;
+  const t = iso(today()), d = e ? e.date : (t.startsWith(String(y)) ? t : (t < `${y}` ? `${y}-01-01` : `${y}-12-31`));
+  openSheet(e ? 'Saldo wijzigen' : 'Saldo spaarrekening', `
+    <p class="hint">Vul het saldo in dat je in Trade Republic ziet op de gekozen datum. Het verschil met het berekende saldo wordt geboekt als <b>Kasverschil</b>, en de prognose rekent vanaf het echte saldo verder.</p>
+    <label class="fld"><span>Datum</span><input id="f-sdate" type="date" value="${d}" min="${y}-01-01" max="${t < `${y}-12-31` ? t : `${y}-12-31`}"></label>
+    <div class="card tight"><div class="kv"><span>Berekend saldo op deze datum</span><b id="calc-bal"></b></div></div>
+    <label class="fld"><span>Werkelijk saldo</span><input id="f-saldo" class="amount" inputmode="decimal" placeholder="€ 0" value="${e ? numIn(e.saldo) : ''}" ${e ? '' : 'autofocus'}></label>
     <p class="hint" id="kas-preview"></p>
-    <button class="btn primary" data-act="save-saldo">Opslaan</button>`);
+    <button class="btn primary" data-act="save-saldo" data-id="${e ? e.id : ''}">Opslaan</button>
+    ${e ? `<button class="btn danger" data-act="del-saldo" data-id="${e.id}">Verwijderen</button>` : ''}`);
+  updateSaldoPreview();
+}
+function saldoTaken(d, excl) { return S.moves.some(m => m.kind === 'kas' && m.saldo != null && m.date === d && m.id !== excl); }
+function updateSaldoPreview() {
+  const di = $('#f-sdate'); if (!di) return;
+  const btn = $('[data-act="save-saldo"]'), excl = btn ? btn.dataset.id : '', d = di.value, p = $('#kas-preview'), cb = $('#calc-bal');
+  if (!d) { if (cb) cb.textContent = '—'; return; }
+  const calc = balanceAt(d, excl), v = parseNum(val('#f-saldo')), taken = saldoTaken(d, excl);
+  if (cb) cb.textContent = eur2(calc);
+  if (btn) btn.disabled = taken;
+  if (p) { p.classList.toggle('wrn', taken); p.textContent = T(taken ? 'Op deze datum is al een saldo ingevoerd. Wijzig of verwijder dat via Instellingen → Ingevoerde saldi.' : isNaN(v) ? '' : `Kasverschil: ${eurS(v - calc)}`); }
+}
+function sheetSaldi() {
+  const list = saldoEntries().reverse();
+  openSheet('Ingevoerde saldi', (list.length ? `<div class="card tight">` + list.map(e => `<button class="list-btn" data-act="edit-saldo" data-id="${e.id}">
+      <span>${dLong(fromIso(e.date))}<small class="sub" style="display:block;font-size:13px">kasverschil ${eurS(e.amt)}</small></span><span class="r">${eur2(e.saldo)}</span></button>`).join('') + `</div>`
+    : `<div class="empty">Nog geen saldi ingevoerd.</div>`) + `<button class="btn primary" data-act="sheet-saldo">Saldo invoeren</button>`);
 }
 
 function rangeTool(g, label) {
@@ -1250,12 +1293,21 @@ const ACT = {
     S.moves.push({ id: uid(), kind, date, amt: r2(amt), note: val('#f-note').trim(), ...(kind === 'uitgave' ? { pot: movePot } : {}) });
     save(); closeSheet(); render(); toast(kind === 'opname' ? 'Opname opgeslagen' : 'Uitgave opgeslagen');
   },
-  'save-saldo': () => {
-    const v = parseNum(val('#f-saldo')); if (isNaN(v)) return toast('Vul het saldo in');
-    const diff = r2(v - model().savingsNow);
-    S.moves.push({ id: uid(), kind: 'kas', date: iso(today()), amt: diff, saldo: r2(v), note: '' });
-    save(); closeSheet(); render(); toast(Math.abs(diff) < 0.005 ? 'Saldo klopt precies' : `Kasverschil ${diff > 0 ? '+' : '−'}${eur2(Math.abs(diff))} geboekt`);
+  'save-saldo': el => {
+    const v = parseNum(val('#f-saldo')), d = val('#f-sdate'), id = el.dataset.id, y = String(S.settings.year);
+    if (isNaN(v)) return toast('Vul het saldo in'); if (!d) return toast('Vul een datum in');
+    if (!d.startsWith(y)) return toast(`Kies een datum in boekjaar ${y}`);
+    if (d > iso(today())) return toast('Kies een datum in het verleden of vandaag');
+    if (saldoTaken(d, id)) return toast('Op deze datum is al een saldo ingevoerd');
+    const diff = r2(v - balanceAt(d, id)), e = id && S.moves.find(x => x.id === id);
+    if (e) Object.assign(e, { date: d, saldo: r2(v), amt: diff }); else S.moves.push({ id: uid(), kind: 'kas', date: d, amt: diff, saldo: r2(v), note: '' });
+    save(); render();
+    if (e) sheetSaldi(); else closeSheet();
+    toast(Math.abs(diff) < 0.005 ? 'Saldo klopt precies' : `Kasverschil ${diff > 0 ? '+' : '−'}${eur2(Math.abs(diff))} geboekt`);
   },
+  'sheet-saldi': () => sheetSaldi(),
+  'edit-saldo': el => sheetSaldo(el.dataset.id),
+  'del-saldo': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); render(); sheetSaldi(); toast('Verwijderd'); },
   'del-move': el => {
     const x = S.moves.find(m => m.id === el.dataset.id); if (!x) return;
     const p = S.pots.find(c => c.id === x.pot);
@@ -1391,7 +1443,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.grid) updateGridTotal(t.dataset.grid);
-  if (t.id === 'f-saldo') { const v = parseNum(t.value), p = $('#kas-preview'); if (p) p.textContent = isNaN(v) ? '' : T(`Kasverschil: ${eurS(v - model().savingsNow)}`); }
+  if (t.id === 'f-saldo' || t.id === 'f-sdate') updateSaldoPreview();
 });
 document.addEventListener('change', e => {
   const t = e.target;
@@ -1401,6 +1453,7 @@ document.addEventListener('change', e => {
     else { v = parseInt(t.value, 10); if (isNaN(v)) return; if (k === 'payday') v = Math.min(28, Math.max(1, v)); }
     S.settings[k] = v; save(); render(); return;
   }
+  if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
   if (t.dataset.impsign) { IMP.sign = t.value; sheetDymeMap(); return; }
   if (t.id === 'file-dyme' && t.files[0]) { onDymeFile(t.files[0]); t.value = ''; }
