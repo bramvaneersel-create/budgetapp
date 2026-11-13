@@ -1,6 +1,6 @@
 /* Service worker: bewaart de app-bestanden op het toestel zodat de app volledig offline werkt.
    Er worden nooit gegevens verstuurd; alleen de eigen app-bestanden worden uit de cache geladen. */
-const VERSION = 'jaarbudget-v20';
+const VERSION = 'jaarbudget-v21';
 const FILES = ['./', './index.html', './i18n.js', './app.js', './app.css', './manifest.webmanifest', './icon-ring-180.png', './icon-ring-512.png'];
 
 self.addEventListener('install', e => {

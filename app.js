@@ -536,7 +536,19 @@ function jaarBudgetsHtml(m, compact) {
   h += `<div class="card year-prog"><div class="row"><span class="lbl">Jaar verstreken</span><b>${pct}%</b></div>
     <div class="bar"><div class="fill prog" style="width:${pct}%"></div></div>
     <div class="meta"><span>${dShort(m.P[0].start)}</span><span>${m.inYear ? 'vandaag ' + dShort(m.T) : ''}</span><span>31 dec</span></div>
-    <div class="legend" style="margin-top:8px"><span><i class="l-pace"></i>zo ver is het jaar — vergelijk met de balk</span></div></div>`;
+    <div class="legend" style="margin-top:8px"><span><i class="l-pace"></i>zo ver is het jaar — vergelijk met de balk</span></div>
+    ${(() => {
+      const doel = m.pl.jaarDoel, grens = m.pl.jaarGrens;
+      const spent = sum(S.dyme.map(d => m.dyYtd[d.id] || 0)) + sum(vrijPots().map(p => m.potSpent[p.id] || 0));
+      const sp = doel > 0 ? Math.round(spent / doel * 100) : 0, st = status(spent, doel * pace, grens * pace), left = doel - spent;
+      return `<div class="divider" style="margin:14px 0 12px"></div>
+      <div class="row"><span class="lbl">Uitgegeven van doel</span><b class="${st === 'over' ? 'neg' : st === 'warn' ? 'wrn' : ''}">${sp}%</b></div>
+      <div class="bar ${st}" style="margin:8px 0 6px"><div class="fill" style="width:${Math.min(100, Math.max(0, sp))}%"></div><i class="tick pace" style="left:${pct}%"></i></div>
+      <div class="meta"><span>${eur(spent)} uitgegeven</span><span>doel ${eur(doel)}</span></div>
+      <div class="divider" style="margin:12px 0"></div>
+      <div class="row"><span class="lbl">Nog beschikbaar</span><b class="mid ${left >= 0 ? 'pos' : 'neg'}">${eurS(left)}</b></div>
+      <div class="meta" style="margin-top:4px"><span>tot je doel · tot je grens nog ${eur(grens - spent)}</span></div>`;
+    })()}</div>`;
   const items = [
     ...S.dyme.map(d => { const doel = sum(d.doel), grens = sum(d.grens), s = m.dyYtd[d.id] || 0;
       return { name: d.name, doel, html: budgetRow(d.name, s, doel, grens, { pace: doel * pace, st: status(s, doel * pace, grens * pace), tag: 'maand', act: compact ? null : 'edit-dyme', id: d.id }) }; }),

@@ -75,6 +75,8 @@ window.I18N_EN = [
   ['Maandbudget toevoegen', 'Add monthly budget'], ['Jaarbudget toevoegen', 'Add yearly budget'],
   ['Nog geen budget. Lees er een in via Instellingen.', 'No budget yet. Import one in Settings.'],
 
+  ['Uitgegeven van doel', 'Spent of goal'], ['{} uitgegeven', '{} spent'], ['Nog beschikbaar', 'Still available'],
+  ['tot je doel · tot je grens nog {}', 'until your goal · {} left until your limit'],
   // maandplan
   ['Maandplan', 'Monthly plan'], ['Inkomsten {}', 'Income {}'], ['Overige inkomsten', 'Other income'],
   ['+ Overige inkomsten toevoegen', '+ Add other income'], ['Uitgaven {}', 'Expenses {}'], ['Vaste lasten', 'Fixed costs'],
