@@ -296,5 +296,12 @@ window.I18N_EN = [
   ['gepland {} · {} te veel', 'planned {} · {} over'], ['gepland {} · ontvangen', 'planned {} · received'], ['gepland {} · nog {} te ontvangen', 'planned {} · {} still to receive'],
   ['Post aanpassen', 'Edit item'], ['Origineel', 'Original'], ['Kies een datum', 'Choose a date'],
   ['betaald {}', 'paid {}'], ['betaald {} ✓', 'paid {} ✓'], ['ontvangen {}', 'received {}'], ['ontvangen {} ✓', 'received {} ✓'],
-  ['Tik op een post voor de transacties en om de bedragen aan te passen.', 'Tap an item to see its transactions and adjust the amounts.']
+  ['Tik op een post voor de transacties en om de bedragen aan te passen.', 'Tap an item to see its transactions and adjust the amounts.'],
+  // v26: doorsturen in import
+  ['Akkoord, doorsturen', 'OK, move on'], ['Terugzetten', 'Undo'], ['Alles akkoord', 'Accept all'], ['Afgehandeld ({})', 'Done ({})'],
+  ['Nog {} te bekijken · {} naar je budgetten.', '{} left to review · {} to your budgets.'], ['Alles bekeken · {} naar je budgetten.', 'All reviewed · {} to your budgets.'],
+  ['Tik op ✓ om een transactie door te sturen; de app laat dan zien welke andere transacties waarschijnlijk in hetzelfde budget horen. Wat je aanpast, onthoudt de app voor de volgende keer.', 'Tap ✓ to move a transaction on; the app then shows which other transactions probably belong in the same budget. What you change, the app remembers for next time.'],
+  ['Doorgestuurd naar', 'Moved to'], ['Horen deze er ook bij?', 'Do these belong there too?'], ['nu: {}', 'now: {}'],
+  ['Ook doorsturen ({})', 'Move these too ({})'], ['Overslaan', 'Skip'], ['Doorgestuurd', 'Moved on'], ['{} doorgestuurd', '{} moved on'],
+  ['Kies eerst een budget', 'Choose a budget first']
 ];

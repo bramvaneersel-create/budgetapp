@@ -1473,24 +1473,72 @@ function targetName(v) {
   if (v && v.startsWith('line:')) return S.lines.find(l => 'line:' + l.id === v)?.name || '?';
   return S.dyme.find(d => d.id === v)?.name || '—';
 }
+const BHOW = { regel: 'jouw regel', geleerd: 'geleerd', herkend: 'herkend', terugkerend: 'terugkerend', onzeker: 'controleer' };
+function bankRowInfo(t) {
+  return `<div class="bt"><b translate="no">${esc(t.desc || '(geen naam)')}</b><span>${dShort(fromIso(t.date))} · <span class="how ${t.how}">${BHOW[t.how]}</span>${t.why && t.how !== 'regel' ? ` · <span translate="no">${esc(T(t.why))}</span>` : ''}</span></div>
+    <span class="ba ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' : ''}${eur2(Math.abs(t.amt))}</span>`;
+}
+// Hoe sterk lijkt transactie b op a (om mee te sturen naar hetzelfde budget)?
+function bankSim(a, b) {
+  if (a.iban && a.iban === b.iban) return 1;
+  const ka = bankKey(a.desc); if (ka && ka === bankKey(b.desc)) return 1;
+  let sc = 0;
+  if (a.cat && a.cat === b.cat && !/ongecategoriseerd|overige overboekingen/i.test(a.cat)) sc = Math.max(sc, 0.75);
+  if (b.target && b.target === a.target) sc = Math.max(sc, 0.65);
+  const ta = tokens(a.desc + ' ' + a.memo), tb = tokens(b.desc + ' ' + b.memo);
+  if (ta.length && tb.length) { const sh = ta.filter(w => tb.includes(w)).length, j = sh / new Set([...ta, ...tb]).size; if (j >= 0.25) sc = Math.max(sc, 0.5 + j / 2); }
+  if (Math.sign(a.amt) !== Math.sign(b.amt)) sc *= 0.6;
+  return sc;
+}
 function sheetBankReview() {
-  const it = BIMP.items, grp = { check: [], auto: [], ign: [] };
-  for (const t of it) (t.how === 'onzeker' || !t.target ? grp.check : t.target === '__ignore' ? grp.ign : grp.auto).push(t);
-  const HOW = { regel: 'jouw regel', geleerd: 'geleerd', herkend: 'herkend', terugkerend: 'terugkerend', onzeker: 'controleer' };
-  const row = t => `<div class="brow${t.changed ? ' chg' : ''}"><div class="bt"><b translate="no">${esc(t.desc || '(geen naam)')}</b><span>${dShort(fromIso(t.date))} · <span class="how ${t.how}">${HOW[t.how]}</span>${t.why && t.how !== 'regel' ? ` · <span translate="no">${esc(T(t.why))}</span>` : ''}</span></div>
-    <span class="ba ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' : ''}${eur2(Math.abs(t.amt))}</span>
-    <select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select></div>`;
-  const sec = (k, title, list, openDef) => {
+  if (BIMP.sim) return sheetBankSim();
+  const it = BIMP.items, todo = it.filter(t => !t.done), done = it.filter(t => t.done), grp = { check: [], auto: [], ign: [] };
+  for (const t of todo) (t.how === 'onzeker' || !t.target ? grp.check : t.target === '__ignore' ? grp.ign : grp.auto).push(t);
+  const row = t => `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
+    <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
+  const drow = t => `<div class="brow done">${bankRowInfo(t)}<span class="dn" translate="no">→ ${esc(T(targetName(t.target)))}</span><button class="undo-btn" data-act="bank-undo" data-id="${t.id}">Terugzetten</button></div>`;
+  const sec = (k, title, list, openDef, all) => {
     if (!list.length) return '';
     const open = BIMP.open[k] ?? openDef;
-    return `<button class="bsec" data-act="bank-toggle" data-k="${k}"><span>${title} (${list.length})</span><span class="chev">${open ? '▾' : '▸'}</span></button>` +
-      (open ? `<div class="card tight">${list.map(row).join('')}</div>` : '');
+    return `<div class="bsec-row"><button class="bsec" data-act="bank-toggle" data-k="${k}"><span>${title} (${list.length})</span><span class="chev">${open ? '▾' : '▸'}</span></button>${all && list.some(t => t.target) ? `<button class="bsec-all" data-act="bank-ok-all" data-k="${k}">Alles akkoord</button>` : ''}</div>` +
+      (open ? `<div class="card tight">${list.map(k === 'done' ? drow : row).join('')}</div>` : '');
   };
-  const spend = sum(grp.auto.filter(t => t.amt > 0 && !String(t.target).startsWith('line:')).map(t => t.amt));
-  openSheet('Bankexport inlezen', `<p class="hint">${it.length} nieuwe transacties${BIMP.dup ? ` · ${BIMP.dup} al eerder ingelezen` : ''}. ${grp.auto.length} automatisch ingedeeld (${eur(spend)}), ${grp.ign.length} tellen niet mee voor je budgetten.</p>` +
-    sec('check', 'Controleren', grp.check, true) + sec('auto', 'Ingedeeld', grp.auto, grp.check.length === 0) + sec('ign', 'Niet meegeteld', grp.ign, false) +
-    `<p class="hint">Pas je een indeling aan, dan geldt dat ook voor dezelfde winkel hierboven en onthoudt de app het voor de volgende keer.</p>
-    <button class="btn primary" data-act="bank-do">${grp.check.filter(t => !t.target).length ? `Opslaan (${grp.check.filter(t => !t.target).length} nog niet ingedeeld)` : 'Opslaan'}</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+  const spend = sum(it.filter(t => t.target && t.target !== '__ignore' && !String(t.target).startsWith('line:') && t.amt > 0).map(t => t.amt));
+  const left = todo.filter(t => !t.target).length;
+  openSheet('Bankexport inlezen', `<p class="hint">${it.length} nieuwe transacties${BIMP.dup ? ` · ${BIMP.dup} al eerder ingelezen` : ''}. ${todo.length ? `Nog ${todo.length} te bekijken` : 'Alles bekeken'} · ${eur(spend)} naar je budgetten.</p>` +
+    sec('check', 'Controleren', grp.check, true, false) + sec('auto', 'Ingedeeld', grp.auto, grp.check.length === 0, true) + sec('ign', 'Niet meegeteld', grp.ign, false, true) + sec('done', 'Afgehandeld', done, false, false) +
+    `<p class="hint">Tik op ✓ om een transactie door te sturen; de app laat dan zien welke andere transacties waarschijnlijk in hetzelfde budget horen. Wat je aanpast, onthoudt de app voor de volgende keer.</p>
+    <button class="btn primary" data-act="bank-do">${left ? `Opslaan (${left} nog niet ingedeeld)` : 'Opslaan'}</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+}
+function sheetBankSim() {
+  const { src, cands, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src);
+  openSheet('Bankexport inlezen', `<div class="card sim-src"><div class="lbl">Doorgestuurd naar <b translate="no">${esc(T(targetName(t.target)))}</b></div><div class="brow" style="border:0;padding-bottom:0">${bankRowInfo(t)}</div></div>
+    <h2>Horen deze er ook bij?</h2>
+    <div class="card tight">${cands.map(c => { const x = BIMP.items.find(y => y.id === c); return `<label class="brow sim"><input type="checkbox" data-simpick="${x.id}"${pick[x.id] ? ' checked' : ''}>${bankRowInfo(x)}<span class="cur" translate="no">nu: ${esc(T(targetName(x.target) || '—'))}</span></label>`; }).join('')}</div>
+    <button class="btn primary" data-act="bank-sim-do">${Object.values(pick).filter(Boolean).length ? `Ook doorsturen (${Object.values(pick).filter(Boolean).length})` : 'Verder'}</button>
+    <button class="btn" data-act="bank-sim-skip">Overslaan</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+  $('#sheet-root .sheet').scrollTop = 0;
+}
+function bankOk(id) {
+  const t = BIMP.items.find(x => x.id === id); if (!t) return;
+  if (!t.target) return toast('Kies eerst een budget');
+  t.done = true; if (t.how === 'onzeker') { t.learn = true; t.how = 'regel'; }
+  const cands = BIMP.items.filter(x => !x.done && x !== t).map(x => [x, bankSim(t, x)]).filter(([, v]) => v >= 0.5).sort((a, b) => b[1] - a[1]).slice(0, 30);
+  if (!cands.length) { toast('Doorgestuurd'); return sheetBankReview(); }
+  BIMP.scroll = $('#sheet-root .sheet')?.scrollTop || 0;
+  BIMP.sim = { src: id, cands: cands.map(([x]) => x.id), pick: Object.fromEntries(cands.map(([x, v]) => [x.id, v >= 0.6])) };
+  sheetBankReview();
+}
+function bankSimDone(apply) {
+  const { src, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src); let n = 0;
+  if (apply) for (const [id, on] of Object.entries(pick)) if (on) {
+    const x = BIMP.items.find(y => y.id === id); if (!x) continue;
+    if (x.target !== t.target) { x.target = t.target; x.changed = true; x.learn = true; x.how = 'regel'; }
+    x.done = true; n++;
+  }
+  BIMP.sim = null; sheetBankReview();
+  const sh = $('#sheet-root .sheet'); if (sh) sh.scrollTop = BIMP.scroll || 0;
+  toast(n ? `${n + 1} doorgestuurd` : 'Doorgestuurd');
 }
 function learnRule(t, target) {
   S.rules = S.rules || {};
@@ -1808,7 +1856,7 @@ const val = id => $(id)?.value ?? '';
 const gridVals = g => { const v = z12(); $$(`[data-grid="${g}"]`).forEach(i => { const n = parseNum(i.value); v[+i.dataset.k] = isNaN(n) ? 0 : Math.abs(n); }); return v; };
 const ACT = {
   tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); const t = el.dataset.scroll && document.getElementById(el.dataset.scroll); if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0); },
-  'close-sheet': () => { closeSheet(); IMP = null; },
+  'close-sheet': () => { closeSheet(); IMP = null; BIMP = null; },
   'sheet-opname': () => sheetMove('opname'),
   'sheet-uitgave': el => sheetMove('uitgave', el.dataset.pot),
   'sheet-saldo': () => sheetSaldo(),
@@ -1836,6 +1884,11 @@ const ACT = {
   'sheet-wealth': () => sheetWealth(),
   'bank-toggle': el => { const k = el.dataset.k; BIMP.open[k] = !($(`[data-act=bank-toggle][data-k=${k}] .chev`).textContent === '▾'); sheetBankReview(); },
   'bank-do': () => bankCommit(),
+  'bank-ok': el => bankOk(el.dataset.id),
+  'bank-undo': el => { const t = BIMP.items.find(x => x.id === el.dataset.id); if (t) t.done = false; sheetBankReview(); },
+  'bank-ok-all': el => { const k = el.dataset.k; for (const t of BIMP.items) if (!t.done && t.target && t.how !== 'onzeker' && (k === 'ign' ? t.target === '__ignore' : t.target !== '__ignore')) t.done = true; sheetBankReview(); toast('Doorgestuurd'); },
+  'bank-sim-do': () => bankSimDone(true),
+  'bank-sim-skip': () => bankSimDone(false),
   'edit-tx': el => sheetTx(el.dataset.id),
   'edit-move': el => sheetMoveEdit(el.dataset.id),
   'detail-scope': el => { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, el.dataset.k === '' ? null : +el.dataset.k); },
@@ -2044,6 +2097,7 @@ document.addEventListener('change', e => {
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
   if (t.dataset.btx) { bankSetTarget(t.dataset.btx, t.value); return; }
+  if (t.dataset.simpick) { BIMP.sim.pick[t.dataset.simpick] = t.checked; const n = Object.values(BIMP.sim.pick).filter(Boolean).length, b = $('[data-act=bank-sim-do]'); if (b) b.textContent = T(n ? `Ook doorsturen (${n})` : 'Verder'); return; }
   if (t.dataset.impsign) { IMP.sign = t.value; sheetDymeMap(); return; }
   if (t.id === 'file-dyme' && t.files[0]) { onDymeFile(t.files[0]); t.value = ''; }
   if (t.id === 'file-budget' && t.files[0]) { onBudgetFile(t.files[0]); t.value = ''; }
