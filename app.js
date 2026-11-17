@@ -43,10 +43,28 @@ const dLong = dt => `${WD[dt.getDay()]} ${dt.getDate()} ${MON[dt.getMonth()]}`;
 
 /* ───────────── opslag ───────────── */
 const KAS = { id: 'kas', name: 'Kasverschil', doel: 0, grens: 0, acct: 'spaar', vrij: false, sys: 'kas' };
+/* ───────────── vermogen: beleggingen en andere bezittingen ─────────────
+   Elke bezitting heeft een soort, een waarde begin jaar (per jaar), een verwacht rendement en eventueel
+   een maandelijkse inleg (een overboeking uit je budget). Ingevoerde waarden zijn ankers; aankopen
+   (zoals losse aandelen) tellen op bij de waarde. 'Nu' is altijd wat bekend is, zonder aangenomen
+   rendement; alleen de prognose voor einde jaar rekent met het verwachte rendement. */
+const ASSET_TYPES = [
+  { id: 'rekening', nl: 'Beleggingsrekening', beleg: true, ret: 5 }, { id: 'aandelen', nl: 'Aandelen', beleg: true, ret: 7 },
+  { id: 'crypto', nl: 'Crypto', beleg: true, ret: 0 }, { id: 'pensioen', nl: 'Pensioen', beleg: false, ret: 4 },
+  { id: 'woning', nl: 'Woning', beleg: false, ret: 3 }, { id: 'auto', nl: 'Auto', beleg: false, ret: -15 },
+  { id: 'rek', nl: 'Andere rekening', beleg: false, ret: 0 }, { id: 'overig', nl: 'Overige bezitting', beleg: false, ret: 0 }];
+const ASSET_COLORS = ['#3E5C8A', '#C2643A', '#2F8C8C', '#8C6D3E', '#B5527E', '#5E7D3A', '#6B6BB8'];
+const aType = a => ASSET_TYPES.find(t => t.id === a.type) || ASSET_TYPES[ASSET_TYPES.length - 1];
+const isBeleg = a => aType(a).beleg;
+function defaultAssets() {
+  return [{ id: 'beleg', type: 'rekening', name: 'Beleggingsrekening', line: '', ret: 5, start: {}, vals: [] },
+          { id: 'aandelen', type: 'aandelen', name: 'Aandelen', line: 'none', ret: 7, start: {}, vals: [] }];
+}
 function defaultState() {
   return {
     version: 2,
     settings: { year: today().getFullYear(), payday: 15, startSavings: 0, interest: 2, invStart: 0, invReturn: 5, invLine: '', lang: LANG_CUR },
+    assets: defaultAssets(),  // beleggingen en andere bezittingen
     yearSet: {},  // per budgetjaar bewaard: startsaldi, rente, rendement, prognose begin jaar
     lines: [],   // inkomen / vast / sparen / overboeking, bedrag per maand
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
@@ -62,6 +80,13 @@ function normalize(s) {
   if (!o.pots.some(p => p.sys === 'kas')) o.pots.push({ ...KAS });
   if (!Array.isArray(o.extraInc)) o.extraInc = [];
   if (!o.yearSet || typeof o.yearSet !== 'object') o.yearSet = {};
+  if (!Array.isArray(s.assets)) {  // overstap vanaf versie 22: één belegging in de instellingen
+    o.assets = defaultAssets(); const b = o.assets[0], st = o.settings;
+    for (const [yy, v] of Object.entries(o.yearSet)) if (+v.invStart) b.start[yy] = +v.invStart;
+    if (+st.invStart) b.start[st.year] = +st.invStart;
+    if (st.invLine) b.line = st.invLine; if (st.invReturn != null) b.ret = +st.invReturn;
+  }
+  for (const a of o.assets) { if (!a.start || typeof a.start !== 'object') a.start = {}; if (!Array.isArray(a.vals)) a.vals = []; }
   return o;
 }
 function load() {
@@ -81,6 +106,7 @@ function balanceAt(d, excl) {
     const k = Math.max(0, Math.min(11, periodOf(P, t)));
     if (m.kind === 'opname') act[k] += m.amt;
     else if (m.kind === 'kas') act[k] -= m.amt;
+    else if (m.kind === 'koop') { if (m.src !== 'lopend') act[k] += m.amt; }
     else { const p = S.pots.find(x => x.id === m.pot); if (p && p.acct === 'spaar') act[k] += m.amt; }
   }
   let b = start;
@@ -105,7 +131,7 @@ function switchYear(ny) {
 }
 let S = load();
 setLangFormats(S.settings.lang);
-const ui = { tab: 'dash', budMode: 'periode', sel: null, planMonth: null };
+const ui = { tab: 'dash', budMode: 'periode', sel: null, planMonth: null, chartMode: 'spaar', progMode: 'spaar' };
 
 /* ───────────── salarisdag: 15e, of de werkdag ervoor (weekend/feestdag) ───────────── */
 function easter(y) {
@@ -168,12 +194,47 @@ function plan() {
   return t;
 }
 
-/* Beleggingen: inleg via een overboeking (automatisch herkend aan de naam, of zelf gekozen in de instellingen). */
-function invLines() {
-  const v = S.settings.invLine;
-  if (v === 'none') return [];
-  if (v) { const l = S.lines.find(x => x.id === v); if (l) return [l]; }
+function assetLines(a) {
+  if (a.line === 'none') return [];
+  if (a.line) { const l = S.lines.find(x => x.id === a.line); return l ? [l] : []; }
+  if (a.type !== 'rekening') return [];
   return S.lines.filter(l => l.type === 'overboeking' && /beleg|asn|invest|etf|trade republic|degiro|meesman|brand new day/i.test(l.name));
+}
+function assetEvents(a, y, P) {
+  const ev = [], ls = assetLines(a), ys = String(y);
+  for (let k = 0; k < 12; k++) { const dep = sum(ls.map(l => +l.m[k] || 0)); if (dep) ev.push({ d: iso(P[k].start), t: 'dep', amt: dep }); }
+  for (const mv of S.moves) if (mv.kind === 'koop' && mv.asset === a.id && mv.date.slice(0, 4) === ys) ev.push({ d: mv.date, t: 'koop', amt: mv.amt });
+  for (const v of a.vals) if (v.date.slice(0, 4) === ys) ev.push({ d: v.date, t: 'val', amt: v.amt });
+  return ev.sort((x, z) => x.d.localeCompare(z.d) || (x.t === 'val') - (z.t === 'val'));
+}
+const grow = (r, a, b) => Math.pow(1 + r, Math.max(0, dayDiff(fromIso(a), fromIso(b))) / 365);
+// Waarde op datum d: tot en met 'vandaag' alleen bekende bedragen; daarna groei met het verwachte rendement plus geplande inleg
+function assetAt(ev, start, d, td, r) {
+  let v = start; const t = d <= td ? d : td;
+  for (const e of ev) { if (e.d > t) break; v = e.t === 'val' ? e.amt : v + e.amt; }
+  if (d <= td) return v;
+  let last = td;
+  for (const e of ev) { if (e.d <= td || e.d > d || e.t !== 'dep') continue; v = v * grow(r, last, e.d) + e.amt; last = e.d; }
+  return v * grow(r, last, d);
+}
+function assetModel(y, P, T) {
+  const t0 = `${y}-01-01`, t1 = `${y}-12-31`, tt = iso(T), td = tt < t0 ? t0 : tt > t1 ? t1 : tt;
+  const pts = [iso(P[0].start), ...P.map(p => iso(p.end))].map(d => d > t1 ? t1 : d);
+  const list = S.assets.map((a, i) => {
+    const r = (+a.ret || 0) / 100, st = +(a.start[y]) || 0, ev = assetEvents(a, y, P), deps = ev.filter(e => e.t === 'dep');
+    const at = d => assetAt(ev, st, d, td, r), plan = d => assetAt(deps, st, d, t0, r);
+    const now = at(td), end = at(t1), inleg = sum(deps.map(e => e.amt)), inlegNow = sum(deps.filter(e => e.d <= td).map(e => e.amt));
+    const koop = sum(ev.filter(e => e.t === 'koop').map(e => e.amt)), vals = ev.filter(e => e.t === 'val' && e.d <= td);
+    return { a, id: a.id, name: a.name, beleg: isBeleg(a), color: ASSET_COLORS[i % ASSET_COLORS.length], ret: +a.ret || 0,
+      start: st, now, end, inleg, inlegNow, inlegRest: inleg - inlegNow, koop, rend: end - now - (inleg - inlegNow),
+      result: vals.length ? now - st - inlegNow - koop : 0, lastVal: vals.length ? vals[vals.length - 1] : null,
+      path: pts.map(at), base: pts.map(plan), used: !!(st || now || end || inleg || koop || ev.length) };
+  });
+  const bel = list.filter(x => x.beleg && x.used), oth = list.filter(x => !x.beleg && x.used);
+  const tot = (xs, f) => sum(xs.map(f)), arr = (xs, f) => pts.map((_, i) => sum(xs.map(x => f(x)[i])));
+  return { assets: list, belegA: bel, otherA: oth, hasInv: bel.length > 0, invNow: tot(bel, x => x.now), invEnd: tot(bel, x => x.end),
+    invStart: tot(bel, x => x.start), invInleg: tot(bel, x => x.inleg), invKoop: tot(bel, x => x.koop),
+    invPath: arr(bel, x => x.path), invBase: arr(bel, x => x.base), othNow: tot(oth, x => x.now), othEnd: tot(oth, x => x.end) };
 }
 function aggregate(P) {
   const ids = new Set(S.dyme.map(d => d.id)), sp = P.map(() => ({})), unmapped = {};
@@ -222,6 +283,7 @@ function potsNow(m) {
     if (mv.date > t || fromIso(mv.date).getFullYear() !== m.y) continue;
     if (mv.kind === 'opname') general += mv.amt;
     else if (mv.kind === 'kas') { if (mv.amt >= 0) bal.rest += mv.amt; else general -= mv.amt; }
+    else if (mv.kind === 'koop') { if (mv.src !== 'lopend') general += mv.amt; }
     else {
       const sp = S.pots.find(x => x.id === mv.pot); if (!sp || sp.acct !== 'spaar') continue;
       const tp = S.savPots.find(x => x.post && x.post === sp.id);
@@ -273,13 +335,14 @@ function model() {
 
   // 2. Mutaties
   const yS = D(y, 0, 1), yE = D(y, 11, 31), clampK = dt => Math.max(0, Math.min(11, periodOf(P, dt)));
-  const opn = z12(), spaarUitg = z12(), lopUitg = z12(), kas = z12(), potSpent = {}, potVrijK = z12();
+  const opn = z12(), spaarUitg = z12(), lopUitg = z12(), kas = z12(), koopSp = z12(), potSpent = {}, potVrijK = z12();
   let firstVrijMove = null;
   for (const m of S.moves) {
     const dt = fromIso(m.date); if (dt < yS || dt > yE) continue;
     const k = clampK(dt);
     if (m.kind === 'opname') opn[k] += m.amt;
     else if (m.kind === 'kas') { kas[k] += m.amt; potSpent.kas = (potSpent.kas || 0) + m.amt; }
+    else if (m.kind === 'koop') (m.src === 'lopend' ? lopUitg : koopSp)[k] += m.amt;
     else {
       const p = S.pots.find(x => x.id === m.pot); if (!p) continue;
       potSpent[p.id] = (potSpent[p.id] || 0) + m.amt;
@@ -337,7 +400,7 @@ function model() {
   const fcPath = [start], periodStart = z12();   // saldo na elke periode; saldo op elke salarisdag (na storting)
   for (let k = 0; k < 12; k++) {
     const dep = k > 0 ? pl.sparen[k] : 0;
-    const act = opn[k] + spaarUitg[k] - kas[k];
+    const act = opn[k] + spaarUitg[k] + koopSp[k] - kas[k];
     const fut = k >= Math.max(cur, 0) ? predOpn[k] + predSpaar[k] : 0;
     periodStart[k] = bal + dep;
     bal += dep - act - fut; const i = bal * r; rente += i; bal += i; fcPath.push(bal);
@@ -362,27 +425,17 @@ function model() {
   const dyYtd = {}; for (const d of S.dyme) { let s = 0; for (let k = 0; k <= Math.min(cur, 11); k++) s += sp[k]?.[d.id] || 0; dyYtd[d.id] = s; }
   const vrijExp = sum(dyExp) + sum(S.pots.filter(p => p.vrij).map(p => (potSpent[p.id] || 0) + (vrijRem[p.id] || 0) * scale));
 
+  const AM = assetModel(y, P, T);
   return { y, P, T, cur, inYear, frac, elapsed, pl, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
     potSpent, potRem, predOpn, predLop, predSpaar, result, ingEnd, start, eind, savingsNow, rente, renteA, planEind: pb, planRente: prente,
     planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pl.sparen.slice(1)),
     ...(() => {
-      const beleg = sum(invLines().map(l => sum(l.m)));
+      const beleg = AM.invInleg, koop = sum(S.moves.filter(x => x.kind === 'koop' && x.date.slice(0, 4) === String(y)).map(x => x.amt));
       const ap = S.pots.find(p => !p.vrij && !p.sys && /huis|aflos|hypothe/i.test(p.name));
       const aflos = ap ? (potSpent[ap.id] || 0) + (potRem[ap.id] || 0) : 0;
-      return { beleg, aflos, aflosNaam: ap ? ap.name : '', totaalGespaard: (bal - start) + beleg + aflos };
+      return { beleg, koop, aflos, aflosNaam: ap ? ap.name : '', totaalGespaard: (bal - start) + beleg + koop + aflos };
     })(),
-    ...(() => {
-      // Beleggingen: waarde begin jaar + inleg per periode, groei met het verwachte rendement (per maand samengesteld)
-      const ir = Math.pow(1 + (+S.settings.invReturn || 0) / 100, 1 / 12) - 1, il = invLines(), i0 = +S.settings.invStart || 0;
-      let iv = i0, ivNow = i0, inleg = 0, inlegNow = 0, rend = 0, rendNow = 0; const invPath = [i0];
-      for (let k = 0; k < 12; k++) {
-        const dep = sum(il.map(l => +l.m[k] || 0)), g = (iv + dep) * ir;
-        if (k < cur) { inlegNow += dep; rendNow += g; ivNow = iv + dep + g; }
-        else if (k === cur) { inlegNow += dep; rendNow += g * frac; ivNow = iv + dep + g * frac; }
-        iv += dep + g; inleg += dep; rend += g; invPath.push(iv);
-      }
-      return { invStart: i0, invNow: ivNow, invEnd: iv, invInleg: inleg, invInlegNow: inlegNow, invRend: rend, invRendNow: rendNow, invPath, hasInv: i0 > 0 || inleg > 0 };
-    })(),
+    ...AM, koopSp,
     nAvg, avgTot, avgDy, avgPot, scale, topDown, bottomUp, vrijRem, fcPath, planPath, basePath, periodStart, potVrijK };
 }
 
@@ -447,34 +500,65 @@ function chartDetail(m) {
     rows.map(r => `<div class="kv"><span>${esc(r.n)}</span><b class="${r.st === 'over' ? 'neg' : r.st === 'warn' ? 'wrn' : ''}">${eur(r.v)}</b></div>`).join('') + `</div>`;
 }
 
-function lineChart(m) {
+/* Verloop-grafiek. Een reeks heeft 13 punten (begin + einde van elke periode): 'path' is werkelijk tot nu en
+   daarna prognose, 'base' is de prognose van begin jaar. Wisselen tussen reeksen wordt vloeiend geanimeerd. */
+const CHART_MODES = [['spaar', 'Spaarrekening'], ['samen', 'Samen'], ['beleg', 'Beleggingen']];
+const CHART_TITLE = { spaar: 'Verloop spaarrekening', samen: 'Verloop spaarrekening + beleggingen', beleg: 'Verloop beleggingen' };
+function chartSeries(m, mode) {
+  const sp = { base: m.basePath, path: m.fcPath, now: m.savingsNow };
+  const bl = { base: m.invBase, path: m.invPath, now: m.invNow };
+  const add = (a, b) => a.map((v, i) => v + b[i]);
+  const r = mode === 'beleg' ? bl : mode === 'samen' ? { base: add(sp.base, bl.base), path: add(sp.path, bl.path), now: sp.now + bl.now } : sp;
+  return { ...r, end: r.path[12] };
+}
+function chartSvg(m, c) {
   const W = 340, H = 190, pl = 38, pr = 8, pt = 10, pb = 20, iw = W - pl - pr, ih = H - pt - pb;
   const n = m.cur < 0 ? -1 : m.cur > 11 ? 12 : m.cur;
   const nowX = m.cur < 0 ? 0 : m.cur > 11 ? 12 : m.cur + m.frac;
-  const real = m.fcPath.slice(0, Math.max(0, n) + 1).map((v, i) => [i, v]);
-  if (m.inYear) real.push([nowX, m.savingsNow]);
-  const fc = m.cur > 11 ? [] : [[nowX, m.inYear ? m.savingsNow : m.start], ...m.fcPath.map((v, i) => [i, v]).filter(([i]) => i > nowX)];
-  const all = [...m.basePath, ...m.fcPath, m.savingsNow];
+  const real = c.path.slice(0, Math.max(0, n) + 1).map((v, i) => [i, v]);
+  if (m.inYear) real.push([nowX, c.now]);
+  const fc = m.cur > 11 ? [] : [[nowX, m.inYear ? c.now : c.path[0]], ...c.path.map((v, i) => [i, v]).filter(([i]) => i > nowX)];
+  const all = [...c.base, ...c.path, c.now];
   let lo = Math.min(...all), hi = Math.max(...all); const pad = (hi - lo) * 0.12 || 500; lo -= pad; hi += pad;
   const step = niceStep((hi - lo) / 3); lo = Math.floor(lo / step) * step;
   const x = i => pl + i / 12 * iw, y = v => pt + ih - (v - lo) / (hi - lo) * ih;
   const path = pts => pts.map(([i, v], j) => (j ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Verloop spaarrekening">`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Verloop vermogen">`;
   for (let v = lo; v <= hi; v += step) s += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${pl - 4}" y="${y(v) + 3}" class="axis" text-anchor="end">${shortK(v)}</text>`;
   for (let k = 0; k < 12; k += 1) s += `<text x="${x(k + 0.5)}" y="${H - 5}" class="mon${k === m.cur ? ' sel' : ''}" text-anchor="middle">${MON[k][0].toUpperCase()}</text>`;
   if (m.inYear) s += `<line x1="${x(nowX)}" x2="${x(nowX)}" y1="${pt}" y2="${pt + ih}" class="today"/>`;
-  s += `<path d="${path(m.basePath.map((v, i) => [i, v]))}" class="ln-base"/>`;
+  s += `<path d="${path(c.base.map((v, i) => [i, v]))}" class="ln-base"/>`;
   if (fc.length > 1) s += `<path d="${path(fc)}" class="ln-fc"/>`;
   if (real.length > 1) s += `<path d="${path(real)}" class="ln-real"/>`;
-  const last = real.length ? real[real.length - 1] : [0, m.start];
+  const last = real.length ? real[real.length - 1] : [0, c.path[0]];
   s += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="3.5" class="dot-real"/>`;
-  s += `<circle cx="${x(12)}" cy="${y(m.eind)}" r="3" class="dot-fc"/>`;
+  s += `<circle cx="${x(12)}" cy="${y(c.end)}" r="3" class="dot-fc"/>`;
   return s + `</svg>`;
+}
+let chartAnim = 0;
+function switchChart(mode) {
+  const box = $('#vchart'); if (!box || mode === ui.chartMode) return;
+  const m = model(), A = chartSeries(m, ui.chartMode), B = chartSeries(m, mode); ui.chartMode = mode;
+  for (const b of document.querySelectorAll('#ch-seg button')) b.classList.toggle('on', b.dataset.mode === mode);
+  const tt = $('#ch-title'); if (tt) tt.textContent = T(`${CHART_TITLE[mode]} ${m.y}`);
+  const ex = $('#ch-exp'); if (ex) ex.textContent = T(`${eur(B.end)} verwacht`);
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { box.innerHTML = chartSvg(m, B); return; }
+  const id = ++chartAnim, t0 = performance.now(), dur = 550, mix = (a, b, f) => a + (b - a) * f;
+  const frame = now => {
+    if (id !== chartAnim) return;
+    const p = Math.min(1, (now - t0) / dur), f = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+    const c = { base: A.base.map((v, i) => mix(v, B.base[i], f)), path: A.path.map((v, i) => mix(v, B.path[i], f)), now: mix(A.now, B.now, f) };
+    c.end = c.path[12]; box.innerHTML = chartSvg(m, c);
+    if (p < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 const ICON = {
   out: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
   imp: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M4 17l5-5 4 4 7-8M15 8h5v5"/></svg>',
   chk: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   home: '<svg viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/></svg>'
 };
@@ -498,6 +582,7 @@ function actionsHtml(withImport) {
   return `<div class="actions">
     <button class="act" data-act="sheet-opname"><span class="ic">${ICON.out}</span><b>Geld opnemen<small>van spaarrekening</small></b></button>
     <button class="act" data-act="sheet-uitgave"><span class="ic">${ICON.tag}</span><b>Losse uitgave<small>jaarbudget of spaarpost</small></b></button>
+    ${withImport ? '' : `<button class="act wide" data-act="sheet-koop"><span class="ic">${ICON.up}</span><b>Belegging gekocht<small>bijv. losse aandelen, buiten je vaste inleg</small></b></button>`}
     ${withImport ? `<button class="act wide" data-act="pick-dyme"><span class="ic">${ICON.imp}</span><b>Dyme-export inlezen<small>${S.lastImport ? 'Laatst: ' + dLong(fromIso(S.lastImport)) + ' · ' + S.tx.length + ' transacties' : 'Nog niets ingelezen'}</small></b></button>` : ''}
   </div>`;
 }
@@ -553,7 +638,8 @@ function renderDash(m) {
     <div class="kv"><span>Verwacht over op lopende rekening</span><b>${eur(m.ingEnd)}</b></div>
     <div class="divider"></div>
     <div class="kv"><span>Groei spaarrekening</span><b class="${m.eind - m.start >= 0 ? '' : 'neg'}">${eurS(m.eind - m.start)}</b></div>
-    ${m.beleg ? `<div class="kv"><span>Naar beleggingsrekening</span><b>+${eur(m.beleg)}</b></div>` : ''}
+    ${m.belegA.filter(x => x.inleg).map(x => `<div class="kv"><span>Inleg ${esc(x.name)}</span><b>+${eur(x.inleg)}</b></div>`).join('')}
+    ${m.belegA.filter(x => x.koop).map(x => `<div class="kv"><span>Gekocht: ${esc(x.name)}</span><b>+${eur(x.koop)}</b></div>`).join('')}
     ${m.aflos ? `<div class="kv"><span>Extra aflossing (${esc(m.aflosNaam)})</span><b>+${eur(m.aflos)}</b></div>` : ''}
     <div class="kv total"><span>Totaal gespaard dit jaar</span><b class="${m.totaalGespaard >= 0 ? 'pos' : 'neg'}">${eurS(m.totaalGespaard)}</b></div>
     ${m.nAvg ? `<div class="kv"><span>Gem. vrije uitgaven per maand</span><b class="${m.avgTot > sum(m.pl.budgetM) / 12 + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(sum(m.pl.budgetM) / 12)}</small></b></div>` : ''}</div>`;
@@ -676,39 +762,56 @@ function renderBudget(m) {
 
 function renderSpaar(m) {
   let h = header('Vermogen', `Boekjaar ${m.y}`);
-  const k0 = Math.min(Math.max(m.cur, 0), 11), lastPay = m.P[k0].start;
-  h += `<div class="card"><div class="lbl">${m.hasInv ? 'Totaal vermogen' : 'Huidige stand'}</div>
-    <div class="big" style="margin:6px 0 4px">${eur(m.savingsNow + (m.hasInv ? m.invNow : 0))}</div>
-    ${m.hasInv ? `<div class="kv" style="margin-top:8px"><span>Spaarrekening</span><b>${eur(m.savingsNow)}</b></div>
-    <div class="kv"><span>Beleggingen (verwacht)</span><b>${eur(m.invNow)}</b></div>` : ''}
+  const k0 = Math.min(Math.max(m.cur, 0), 11), lastPay = m.P[k0].start, any = m.hasInv || m.otherA.length;
+  h += `<div class="card"><div class="lbl">${any ? 'Totaal vermogen' : 'Huidige stand'}</div>
+    <div class="big" style="margin:6px 0 4px">${eur(m.savingsNow + m.invNow + m.othNow)}</div>
+    ${any ? `<div class="kv" style="margin-top:8px"><span>Spaarrekening</span><b>${eur(m.savingsNow)}</b></div>` : ''}
+    ${m.hasInv ? `<div class="kv"><span>Beleggingen</span><b>${eur(m.invNow)}</b></div>` +
+      (m.belegA.length > 1 ? m.belegA.map(x => `<div class="kv sub-kv"><span>${esc(x.name)}</span><span>${eur(x.now)}</span></div>`).join('') : '') : ''}
+    ${m.otherA.map(x => `<div class="kv"><span>${esc(x.name)}</span><b>${eur(x.now)}</b></div>`).join('')}
     <div class="sub" style="margin-top:6px">${m.cur < 0 ? 'Startsaldo boekjaar' : `Spaarrekening per salarisdag ${dLong(lastPay)}: ${eur(m.periodStart[k0])}`}${m.lastKas ? ` · laatst ingevoerd ${dShort(fromIso(m.lastKas.date))}` : ''}</div>
     <div class="divider" style="margin:14px 0"></div>`;
-  const pots = potsNow(m); if (m.hasInv) pots.push({ id: 'inv', label: 'Beleggingen', amt: m.invNow, color: INV_COLOR });
+  const pots = potsNow(m); for (const x of [...m.belegA, ...m.otherA]) pots.push({ id: x.id, label: x.name, amt: x.now, color: x.color });
   const shown = [...pots].sort((a, b) => b.amt - a.amt), tot = sum(pots.map(p => Math.max(0, p.amt)));
-  h += `<div class="row"><div class="lbl">${m.hasInv ? 'Verdeling vermogen' : 'Verdeling spaarpotten'}</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
+  h += `<div class="row"><div class="lbl">${any ? 'Verdeling vermogen' : 'Verdeling spaarpotten'}</div><button class="info-btn" data-act="sheet-pots" aria-label="Spaarpotten en prioriteit">i</button></div>
     <div class="pots"><div class="donut-wrap">${donut(pots)}</div>
     <div class="pot-legend">${shown.map(p => `<div class="pl"><i style="background:${p.color}"></i><span class="n">${esc(p.label)}</span><b class="${p.amt < -0.5 ? 'neg' : ''}">${eur(p.amt)}</b><small>${tot > 0 && p.amt > 0 ? Math.round(p.amt / tot * 100) + '%' : ''}</small></div>`).join('')}</div></div>
-    <button class="btn primary" data-act="sheet-saldo" style="margin-top:16px">Saldo spaarrekening invoeren</button></div>`;
-  h += `<div class="card"><div class="row"><div class="lbl">Verloop spaarrekening ${m.y}</div><span class="sub" style="font-size:12px">${eur(m.eind)} verwacht</span></div>
-    ${lineChart(m)}
+    <div class="two-btn" style="margin:16px 0 0"><button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening</button><button class="btn primary" data-act="sheet-assetval">Waarde belegging</button></div></div>`;
+  // grafiek met keuze: spaarrekening, samen of beleggingen
+  const cm = m.hasInv ? ui.chartMode : 'spaar', cs = chartSeries(m, cm);
+  h += `<div class="card"><div class="row"><div class="lbl" id="ch-title">${CHART_TITLE[cm]} ${m.y}</div><span class="sub" style="font-size:12px" id="ch-exp">${eur(cs.end)} verwacht</span></div>
+    ${m.hasInv ? `<div class="seg seg-sm" id="ch-seg">${CHART_MODES.map(([k, l]) => `<button data-act="chart-mode" data-mode="${k}" class="${k === cm ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
+    <div id="vchart">${chartSvg(m, cs)}</div>
     <div class="legend"><span><i class="l-base"></i>prognose begin jaar</span><span><i class="l-real"></i>werkelijk</span><span><i class="l-fcl"></i>prognose</span></div></div>`;
-  h += `<div class="card"><div class="lbl" style="margin-bottom:4px">Prognose 31 december</div>
-    <div class="kv"><span>Startsaldo (na storting jan)</span><b>${eur(m.start)}</b></div>
+  // prognose einde jaar: spaarrekening of beleggingen
+  const pm = m.hasInv ? ui.progMode : 'spaar';
+  h += `<div class="card"><div class="lbl" style="margin-bottom:8px">${pm === 'spaar' ? 'Prognose spaarrekening einde jaar' : 'Prognose beleggingen einde jaar'}</div>
+    ${m.hasInv ? `<div class="seg seg-sm"><button data-act="prog-mode" data-mode="spaar" class="${pm === 'spaar' ? 'on' : ''}">Spaarrekening</button><button data-act="prog-mode" data-mode="beleg" class="${pm === 'beleg' ? 'on' : ''}">Beleggingen</button></div>` : ''}`;
+  if (pm === 'spaar') h += `<div class="kv"><span>Startsaldo (na storting jan)</span><b>${eur(m.start)}</b></div>
     <div class="kv"><span>Stortingen feb–dec</span><b>+${eur(m.deposits)}</b></div>
     <div class="kv"><span>Rente (${String(S.settings.interest).replace('.', DEC)}%)</span><b>+${eur(m.rente)}</b></div>
     <div class="kv"><span>Opgenomen</span><b>−${eur(sum(m.opn))}</b></div>
     <div class="kv"><span>Verwacht nog op te nemen</span><b>−${eur(sum(m.predOpn))}</b></div>
     <div class="kv"><span>Uitgaven van spaarrekening</span><b>−${eur(sum(m.spaarUitg))}</b></div>
+    ${sum(m.koopSp) ? `<div class="kv"><span>Belegd vanaf spaarrekening</span><b>−${eur(sum(m.koopSp))}</b></div>` : ''}
     <div class="kv"><span>Verwacht nog uit jaarbudgetten</span><b>−${eur(sum(m.predSpaar))}</b></div>
     <div class="kv"><span>Kasverschil</span><b>${eurS(sum(m.kas))}</b></div>
-    <div class="kv total"><span>Prognose</span><b>${eur(m.eind)}</b></div></div>`;
-  h += `<div class="card"><div class="row"><div class="lbl" style="margin-bottom:4px">Prognose beleggingen 31 december</div><button class="info-btn" data-act="sheet-accounts" aria-label="Instellingen beleggingen">i</button></div>
-    <div class="kv"><span>Waarde begin ${m.y}</span><b>${eur(m.invStart)}</b></div>
-    <div class="kv"><span>Inleg ${m.y}</span><b>+${eur(m.invInleg)}</b></div>
-    <div class="kv"><span>Verwacht rendement (${String(S.settings.invReturn).replace('.', DEC)}%)</span><b>${m.invRend < 0 ? '−' : '+'}${eur(Math.abs(m.invRend))}</b></div>
-    <div class="kv total"><span>Prognose</span><b>${eur(m.invEnd)}</b></div>
-    ${m.hasInv ? '' : `<p class="hint" style="margin:8px 0 0">Vul de waarde van je beleggingen begin dit jaar in via de i of Instellingen.</p>`}</div>
-    <div class="card"><div class="kv total" style="margin:0;padding:0;border:0"><span>Vermogen 31 december (verwacht)</span><b>${eur(m.eind + m.invEnd)}</b></div></div>`;
+    <div class="kv total"><span>Prognose einde jaar</span><b>${eur(m.eind)}</b></div></div>`;
+  else {
+    const pct = v => String(v).replace('.', DEC) + '%';
+    for (const x of m.belegA) h += `<div class="kv asset-h"><span>${esc(x.name)}</span><b></b></div>
+      <div class="kv sub-kv"><span>Waarde begin ${m.y}</span><span>${eur(x.start)}</span></div>
+      ${x.inlegNow ? `<div class="kv sub-kv"><span>Inleg tot nu</span><span>+${eur(x.inlegNow)}</span></div>` : ''}
+      ${x.koop ? `<div class="kv sub-kv"><span>Gekocht</span><span>+${eur(x.koop)}</span></div>` : ''}
+      ${x.lastVal ? `<div class="kv sub-kv"><span>Koersresultaat (t/m ${dShort(fromIso(x.lastVal.d))})</span><span>${eurS(x.result)}</span></div>` : ''}
+      <div class="kv sub-kv strong"><span>Waarde nu</span><span>${eur(x.now)}</span></div>
+      ${x.inlegRest ? `<div class="kv sub-kv"><span>Nog in te leggen</span><span>+${eur(x.inlegRest)}</span></div>` : ''}
+      <div class="kv sub-kv"><span>Verwacht rendement (${pct(x.ret)})</span><span>${eurS(x.rend)}</span></div>
+      <div class="kv sub-kv strong"><span>Prognose einde jaar</span><span>${eur(x.end)}</span></div>`;
+    h += `<div class="kv total"><span>Beleggingen einde jaar</span><b>${eur(m.invEnd)}</b></div>
+    <button class="btn" data-act="sheet-wealth" style="margin-top:12px">Beleggingen beheren</button></div>`;
+  }
+  if (any) h += `<div class="card"><div class="kv total" style="margin:0;padding:0;border:0"><span>Verwacht vermogen einde jaar</span><b>${eur(m.eind + m.invEnd + m.othEnd)}</b></div></div>`;
   h += actionsHtml(false);
   const transfer = spaarPosts().filter(p => +p.doel > 0 && !p.sys);
   if (transfer.length) h += `<div class="card tight">` + transfer.map(p => `<button class="list-btn" data-act="sheet-uitgave" data-pot="${p.id}"><span>${esc(p.name)} overmaken</span><span class="r">${m.potRem[p.id] ? 'nog ' + eur(m.potRem[p.id]) : 'gedaan'}</span></button>`).join('') + `</div>`;
@@ -719,10 +822,11 @@ function renderSpaar(m) {
   const mv = S.moves.filter(x => fromIso(x.date).getFullYear() === m.y).sort((a, b) => b.date.localeCompare(a.date));
   h += `<h2>Mutaties ${m.y}</h2><div class="card tight">` + (mv.length ? mv.map(x => {
     const p = S.pots.find(c => c.id === x.pot);
-    const title = x.kind === 'opname' ? 'Opname naar lopende rekening' : x.kind === 'kas' ? (x.saldo != null ? 'Saldo ingevoerd' : 'Kasverschil') : (p?.name || 'Uitgave');
-    const sub = x.kind === 'kas' ? (x.saldo != null ? eur2(x.saldo) + ' · kasverschil' : 'kasverschil') : x.kind === 'uitgave' && p?.acct === 'lopend' ? 'van lopende rekening' : '';
+    const ass = x.kind === 'koop' ? S.assets.find(a => a.id === x.asset) : null;
+    const title = x.kind === 'koop' ? `Gekocht: ${ass?.name || ''}` : x.kind === 'opname' ? 'Opname naar lopende rekening' : x.kind === 'kas' ? (x.saldo != null ? 'Saldo ingevoerd' : 'Kasverschil') : (p?.name || 'Uitgave');
+    const sub = x.kind === 'koop' ? (x.src === 'lopend' ? 'van lopende rekening' : 'van spaarrekening') : x.kind === 'kas' ? (x.saldo != null ? eur2(x.saldo) + ' · kasverschil' : 'kasverschil') : x.kind === 'uitgave' && p?.acct === 'lopend' ? 'van lopende rekening' : '';
     const amt = x.kind === 'kas' ? (x.amt >= 0 ? '+' : '−') + eur2(Math.abs(x.amt)) : '−' + eur2(x.amt);
-    return `<div class="mv" data-act="del-move" data-id="${x.id}"><span class="dot ${x.kind === 'opname' ? 'o' : x.kind === 'kas' ? 'k' : 'u'}">${x.kind === 'opname' ? '↑' : x.kind === 'kas' ? '=' : esc((p?.name || '?')[0])}</span>
+    return `<div class="mv" data-act="del-move" data-id="${x.id}"><span class="dot ${x.kind === 'opname' ? 'o' : x.kind === 'kas' ? 'k' : x.kind === 'koop' ? 'b' : 'u'}">${x.kind === 'opname' ? '↑' : x.kind === 'kas' ? '=' : x.kind === 'koop' ? '↗' : esc((p?.name || '?')[0])}</span>
       <span class="t"><b>${esc(title)}</b><span>${dLong(fromIso(x.date))}${sub ? ' · ' + sub : ''}${x.note ? ' · ' + esc(x.note) : ''}</span></span><span class="a">${amt}</span></div>`;
   }).join('') : `<div class="empty">Nog geen mutaties</div>`) + `</div>`;
   return h;
@@ -734,9 +838,9 @@ function renderInstel(m) {
   h += `<div class="card year-sw"><button class="ys-btn" data-act="year-step" data-d="-1" aria-label="Vorig jaar">‹</button>
     <div class="ys-mid"><span class="lbl">Budgetjaar</span><b translate="no">${st.year}</b></div>
     <button class="ys-btn" data-act="year-step" data-d="1" aria-label="Volgend jaar">›</button></div>`;
-  h += `<h2>Spaarrekening en beleggingen</h2><div class="card tight">
-    <button class="list-btn" data-act="sheet-accounts"><span>Startsaldi, rente en rendement</span><span class="r"></span></button>
-    <button class="list-btn" data-act="sheet-saldi"><span>Ingevoerde saldi</span><span class="r">${saldoEntries().length}</span></button></div>`;
+  h += `<h2>Vermogen</h2><div class="card tight">
+    <button class="list-btn" data-act="sheet-accounts"><span>Spaarrekening</span><span class="r">${saldoEntries().length ? saldoEntries().length + ' saldi' : ''}</span></button>
+    <button class="list-btn" data-act="sheet-wealth"><span>Beleggingen en bezittingen</span><span class="r">${S.assets.length}</span></button></div>`;
   h += `<h2>Salaris</h2>
     <label class="fld"><span>Salaris op dag</span><input type="number" inputmode="numeric" min="1" max="28" data-set="payday" value="${st.payday}"></label>
     <p class="hint">Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.</p>
@@ -887,18 +991,59 @@ function sheetBudgetDetail(kind, id) {
 }
 
 function sheetAccounts() {
-  const st = S.settings, y = st.year, auto = S.settings.invLine ? null : invLines();
-  const cand = S.lines.filter(l => l.type === 'overboeking' || (l.type === 'sparen' && !l.rest));
-  const opt = (v, txt) => `<option value="${v}"${(st.invLine || '') === v ? ' selected' : ''}>${esc(txt)}</option>`;
-  openSheet('Spaarrekening en beleggingen', `<div class="lbl" style="margin:4px 0 8px">Spaarrekening</div>
-    <label class="fld"><span>Saldo na storting januari ${y}</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"></label>
+  const st = S.settings, y = st.year;
+  openSheet('Spaarrekening', `<label class="fld"><span>Saldo na storting januari ${y}</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"></label>
     <label class="fld"><span>Rente (% per jaar)</span><input inputmode="decimal" data-set="interest" value="${numIn(st.interest)}"></label>
     <div class="card tight"><button class="list-btn" data-act="sheet-saldi"><span>Ingevoerde saldi</span><span class="r">${saldoEntries().length}</span></button></div>
-    <div class="lbl" style="margin:18px 0 8px">Beleggingen</div>
-    <label class="fld"><span>Waarde begin ${y}</span><input inputmode="decimal" data-set="invStart" value="${numIn(st.invStart)}"></label>
-    <label class="fld"><span>Verwacht rendement (% per jaar)</span><input inputmode="decimal" data-set="invReturn" value="${numIn(st.invReturn)}"></label>
-    <label class="fld"><span>Inleg via</span><select data-set="invLine">${opt('', 'Automatisch' + (auto && auto.length ? ' (' + auto.map(l => l.name).join(', ') + ')' : ''))}${cand.map(l => opt(l.id, l.name)).join('')}${opt('none', 'Geen inleg')}</select></label>
-    <p class="hint">Startsaldi en rendement worden per budgetjaar bewaard. Het rendement is een verwachting; pas het aan wanneer je wilt.</p>`, { kind: 'accounts' });
+    <p class="hint">Startsaldo en rente worden per budgetjaar bewaard.</p>`, { kind: 'accounts' });
+}
+/* Beleggingen en andere bezittingen beheren */
+function sheetWealth() {
+  const m = model(), row = x => `<button class="list-btn" data-act="edit-asset" data-id="${x.id}"><span>${esc(x.name)}<small class="sub" style="display:block;font-size:13px">${aType(x.a).nl}${x.inleg ? ' · inleg ' + eur(x.inleg / 12) + ' p/m' : ''}</small></span><span class="r">${eur(x.now)}</span></button>`;
+  const bel = m.assets.filter(x => x.beleg), oth = m.assets.filter(x => !x.beleg);
+  openSheet('Beleggingen en bezittingen', `<div class="lbl" style="margin:4px 0 8px">Beleggingen</div><div class="card tight">${bel.map(row).join('') || '<div class="empty">Nog geen beleggingen</div>'}</div>
+    <div class="lbl" style="margin:18px 0 8px">Andere bezittingen</div><div class="card tight">${oth.map(row).join('') || '<div class="empty">Nog geen andere bezittingen</div>'}</div>
+    <button class="btn primary" data-act="edit-asset" data-id="">+ Toevoegen</button>
+    <p class="hint">Alles hier verschijnt in de cirkel onder Vermogen. Beleggingen tellen ook mee in de grafiek en de prognose voor beleggingen.</p>`, { kind: 'wealth' });
+}
+function sheetAsset(id) {
+  const a = S.assets.find(x => x.id === id), y = S.settings.year, t = a ? a.type : 'aandelen', cand = S.lines.filter(l => l.type === 'overboeking' || (l.type === 'sparen' && !l.rest));
+  const typeOpt = g => ASSET_TYPES.filter(x => x.beleg === g).map(x => `<option value="${x.id}"${x.id === t ? ' selected' : ''}>${x.nl}</option>`).join('');
+  const lv = a ? a.line : 'none', lo = (v, txt) => `<option value="${v}"${lv === v ? ' selected' : ''}>${esc(txt)}</option>`;
+  const vals = a ? [...a.vals].sort((p, q) => q.date.localeCompare(p.date)) : [];
+  openSheet(a ? a.name : 'Belegging of bezitting toevoegen', `
+    <label class="fld"><span>Soort</span><select id="a-type"><optgroup label="${T('Beleggingen')}">${typeOpt(true)}</optgroup><optgroup label="${T('Andere bezittingen')}">${typeOpt(false)}</optgroup></select></label>
+    <label class="fld"><span>Naam</span><input id="a-name" value="${esc(a ? a.name : '')}" placeholder="bijv. Aandelen of Woning"></label>
+    <div class="fld-row"><label class="fld"><span>Waarde begin ${y}</span><input id="a-start" inputmode="decimal" value="${a ? numIn(a.start[y] || 0) : ''}" placeholder="€ 0"></label>
+    <label class="fld"><span>Verwacht rendement (% per jaar)</span><input id="a-ret" inputmode="decimal" value="${a ? numIn(a.ret) : ''}" placeholder="${String(aType({ type: t }).ret).replace('.', DEC)}"></label></div>
+    <label class="fld"><span>Vaste inleg via</span><select id="a-line">${lo('none', 'Geen vaste inleg')}${lo('', 'Automatisch (overboeking met ‘beleg’ of ‘ASN’ in de naam)')}${cand.map(l => lo(l.id, l.name)).join('')}</select></label>
+    <p class="hint">Losse aankopen (zoals aandelen die je zelf koopt) boek je met ‘Belegging gekocht’. Een negatief rendement kan ook, bijvoorbeeld voor een auto.</p>
+    ${a ? `<div class="lbl" style="margin:16px 0 8px">Ingevoerde waarden ${y}</div><div class="card tight">${vals.filter(v => v.date.slice(0, 4) === String(y)).map(v => `<div class="list-btn plain"><span>${dLong(fromIso(v.date))}</span><span class="r">${eur2(v.amt)} <button class="link danger-link" data-act="del-assetval" data-id="${a.id}" data-vid="${v.id}">Wis</button></span></div>`).join('') || '<div class="empty">Nog geen waarden ingevoerd</div>'}</div>
+      <button class="btn" data-act="sheet-assetval" data-id="${a.id}">Waarde invoeren</button>` : ''}
+    <button class="btn primary" data-act="save-asset" data-id="${a ? a.id : ''}">Opslaan</button>
+    ${a ? `<button class="btn danger" data-act="del-asset" data-id="${a.id}">Verwijderen</button>` : ''}`, { kind: 'asset' });
+}
+function sheetAssetVal(id) {
+  const y = S.settings.year, t = today(), mx = iso(t.getFullYear() > y ? D(y, 11, 31) : t), list = S.assets;
+  if (!list.length) return toast('Voeg eerst een belegging toe');
+  const sel = id || (list.find(a => isBeleg(a)) || list[0]).id;
+  openSheet('Waarde invoeren', `<label class="fld"><span>Belegging of bezitting</span><select id="v-asset">${list.map(a => `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+    <label class="fld"><span>Datum</span><input type="date" id="v-date" value="${mx}" min="${y}-01-01" max="${mx}"></label>
+    <label class="fld"><span>Waarde op die datum</span><input id="v-amt" inputmode="decimal" placeholder="€ 0" autofocus></label>
+    <p class="hint">De ingevoerde waarde is leidend: inleg en aankopen daarna tellen erbij op. Het verschil met wat je hebt ingelegd zie je als koersresultaat.</p>
+    <button class="btn primary" data-act="save-assetval">Opslaan</button>`, { kind: 'assetval' });
+}
+function sheetKoop() {
+  const y = S.settings.year, t = today(), mx = iso(t.getFullYear() > y ? D(y, 11, 31) : t), list = S.assets.filter(isBeleg);
+  if (!list.length) return toast('Voeg eerst een belegging toe');
+  const sel = (list.find(a => a.type === 'aandelen') || list[0]).id;
+  openSheet('Belegging gekocht', `<label class="fld"><span>Belegging</span><select id="k-asset">${list.map(a => `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
+    <label class="fld"><span>Bedrag</span><input id="k-amt" inputmode="decimal" placeholder="€ 0" autofocus></label>
+    <div class="fld-row"><label class="fld"><span>Datum</span><input type="date" id="k-date" value="${mx}" min="${y}-01-01" max="${mx}"></label>
+    <label class="fld"><span>Betaald van</span><select id="k-src"><option value="spaar">Spaarrekening</option><option value="lopend">Lopende rekening</option></select></label></div>
+    <label class="fld"><span>Notitie</span><input id="k-note" placeholder="bijv. 10 aandelen ASML"></label>
+    <p class="hint">Voor aankopen naast je vaste maandelijkse inleg. Het bedrag gaat van de gekozen rekening af en komt bij de waarde van de belegging.</p>
+    <button class="btn primary" data-act="save-koop">Opslaan</button>`, { kind: 'koop' });
 }
 
 function rangeTool(g, label) {
@@ -1006,12 +1151,12 @@ function sheetInfo() {
     <p><b>2. Jaarbudgetten.</b> Voor bijv. vakantie of Vinci kijkt de app half naar wat er nog in het budget zit en half naar je tempo tot nu toe (zodra een kwart van het jaar voorbij is). Aparte spaarposten met een budget (zoals Huis) verwacht de app in december.</p>
     <p><b>3. Gemiddelde als controle.</b> Daarnaast berekent de app je gemiddelde vrije uitgaven per maand (Dyme en jaarbudgetten samen) en trekt dat door naar het einde van het jaar. Wijkt dat af van de optelsom per budget, dan schuift de prognose die kant op — hoe meer maanden data, hoe zwaarder (tot maximaal de helft).</p>
     <p><b>4. Lopende rekening.</b> Per periode: vrije ruimte − Dyme − jaarbudgetten die je van je lopende rekening betaalt. Een overschot blijft op je lopende rekening staan en vangt latere tekorten op. Wordt het saldo negatief, dan rekent de app met een opname van je spaarrekening.</p>
-    <p><b>5. Spaarrekening 31 december</b> = startsaldo + stortingen + rente − opnames − uitgaven van de spaarrekening ± kasverschil (gedaan en verwacht).</p>
+    <p><b>5. Spaarrekening einde jaar</b> = startsaldo + stortingen + rente − opnames − uitgaven van de spaarrekening ± kasverschil (gedaan en verwacht).</p>
     <p><b>6. Saldo invoeren.</b> Na elk salaris kun je het echte saldo invoeren; het verschil wordt Kasverschil en de prognose rekent vanaf het echte saldo verder.</p>
     <p><b>Bandbreedte.</b> Op basis van hoe sterk je uitgaven aan maandbudgetten schommelen (ca. 80% zekerheid).</p></div>`);
 }
-function confirmSheet(title, text, act) {
-  openSheet(title, `<p class="hint" style="font-size:15px">${esc(text)}</p><button class="btn danger" data-act="${act}">Bevestigen</button><button class="btn" data-act="close-sheet">Annuleren</button>`);
+function confirmSheet(title, text, act, id) {
+  openSheet(title, `<p class="hint" style="font-size:15px">${esc(text)}</p><button class="btn danger" data-act="${act}"${id ? ` data-id="${id}"` : ''}>Bevestigen</button><button class="btn" data-act="close-sheet">Annuleren</button>`);
 }
 
 /* ───────────── bestanden lezen ───────────── */
@@ -1335,7 +1480,7 @@ async function saveFile(name, text, type) {
 function demo() {
   const T = today(), y = T.getFullYear();
   let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  S = defaultState(); S.demo = true; S.settings.year = y; S.settings.startSavings = 7000; S.settings.invStart = 12000;
+  S = defaultState(); S.demo = true; S.settings.year = y; S.settings.startSavings = 7000; S.assets[0].start[y] = 12000; S.assets[1].start[y] = 3000;
   const L = (type, name, m) => ({ id: uid(), type, name, m: Array.isArray(m) ? m : Array(12).fill(m) });
   S.lines = [L('inkomen', 'Salaris', 3300), L('inkomen', 'Bonussen', [0, 0, 0, 0, 1900, 0, 0, 0, 0, 0, 0, 0]),
     L('vast', 'Zorgverzekering', 150), L('vast', 'Abonnementen', 60), L('vast', 'Auto', 120),
@@ -1365,7 +1510,9 @@ function demo() {
   const mv = (kind, mo, d, amt, potN, note) => { const dt = D(y, mo, d); if (dt <= T) S.moves.push({ id: uid(), kind, date: iso(dt), amt, pot: potN ? pot(potN) : undefined, note: note || '' }); };
   mv('uitgave', 4, 20, 640, 'Vakantie en reizen', 'Weekend weg'); mv('uitgave', 7, 2, 980, 'Vakantie en reizen', 'Zomervakantie');
   for (let k = 1; k < 12; k += 2) mv('uitgave', k, 20, 50, 'Kapper'); for (let k = 0; k < 12; k++) mv('uitgave', k, 3, 33, 'Huisdier');
-  mv('uitgave', 2, 10, 450, 'Belegging/Capex', 'Nieuwe fiets'); mv('opname', 6, 10, 250); mv('opname', 8, 12, 150);
+  mv('uitgave', 2, 10, 450, 'Belegging/Capex', 'Nieuwe fiets');
+  if (D(y, 3, 8) <= T) S.moves.push({ id: uid(), kind: 'koop', asset: 'aandelen', src: 'spaar', date: iso(D(y, 3, 8)), amt: 1000, note: 'ASML' });
+  if (D(y, 4, 31) <= T) S.assets[1].vals.push({ id: uid(), date: iso(D(y, 4, 31)), amt: 4250 }); mv('opname', 6, 10, 250); mv('opname', 8, 12, 150);
   const k0 = Math.max(1, Math.min(cur - 1, 11)); if (cur > 1) S.moves.push({ id: uid(), kind: 'kas', date: iso(P[k0].start), amt: -23.4, note: '' });
   S.lastImport = iso(T);
   if (EN()) { // demo in het Engels: namen vertalen
@@ -1413,6 +1560,36 @@ const ACT = {
   },
   'sheet-saldi': () => sheetSaldi(),
   'sheet-accounts': () => sheetAccounts(),
+  'sheet-wealth': () => sheetWealth(),
+  'edit-asset': el => sheetAsset(el.dataset.id),
+  'sheet-assetval': el => sheetAssetVal(el.dataset.id),
+  'sheet-koop': () => sheetKoop(),
+  'save-asset': el => {
+    const name = val('#a-name').trim(), type = val('#a-type'); if (!name) return toast('Vul een naam in');
+    const st = parseNum(val('#a-start')), rt = parseNum(val('#a-ret')), y = S.settings.year;
+    let a = S.assets.find(x => x.id === el.dataset.id);
+    if (!a) { a = { id: uid(), start: {}, vals: [] }; S.assets.push(a); }
+    Object.assign(a, { name, type, line: val('#a-line'), ret: isNaN(rt) ? aType({ type }).ret : rt });
+    a.start[y] = isNaN(st) ? 0 : st;
+    save(); render(); sheetWealth(); toast('Opgeslagen');
+  },
+  'del-asset': el => confirmSheet('Verwijderen?', 'De belegging of bezitting, de ingevoerde waarden en de geboekte aankopen worden verwijderd.', 'del-asset-do', el.dataset.id),
+  'del-asset-do': el => { const id = el.dataset.id; S.assets = S.assets.filter(a => a.id !== id); S.moves = S.moves.filter(x => !(x.kind === 'koop' && x.asset === id)); save(); render(); sheetWealth(); toast('Verwijderd'); },
+  'del-assetval': el => { const a = S.assets.find(x => x.id === el.dataset.id); if (!a) return; a.vals = a.vals.filter(v => v.id !== el.dataset.vid); save(); render(); sheetAsset(a.id); },
+  'save-assetval': () => {
+    const a = S.assets.find(x => x.id === val('#v-asset')), d = val('#v-date'), v = parseNum(val('#v-amt')), y = String(S.settings.year);
+    if (!a) return; if (isNaN(v)) return toast('Vul een bedrag in');
+    if (!d || d.slice(0, 4) !== y) return toast(`Kies een datum in ${y}`); if (d > iso(today())) return toast('Datum ligt in de toekomst');
+    a.vals = a.vals.filter(x => x.date !== d); a.vals.push({ id: uid(), date: d, amt: r2(v) });
+    save(); closeSheet(); render(); toast('Waarde opgeslagen');
+  },
+  'save-koop': () => {
+    const a = val('#k-asset'), d = val('#k-date'), v = parseNum(val('#k-amt')), y = String(S.settings.year);
+    if (isNaN(v) || v <= 0) return toast('Vul een bedrag in');
+    if (!d || d.slice(0, 4) !== y) return toast(`Kies een datum in ${y}`); if (d > iso(today())) return toast('Datum ligt in de toekomst');
+    S.moves.push({ id: uid(), kind: 'koop', asset: a, src: val('#k-src'), date: d, amt: r2(Math.abs(v)), note: val('#k-note').trim() });
+    save(); closeSheet(); render(); toast('Aankoop opgeslagen');
+  },
   'year-step': el => { const ny = S.settings.year + (+el.dataset.d); if (ny < 2000 || ny > 2100) return; switchYear(ny); save(); render(); },
   'budget-detail': el => sheetBudgetDetail(el.dataset.kind, el.dataset.id),
   'edit-saldo': el => sheetSaldo(el.dataset.id),
@@ -1420,12 +1597,14 @@ const ACT = {
   'del-move': el => {
     const x = S.moves.find(m => m.id === el.dataset.id); if (!x) return;
     const p = S.pots.find(c => c.id === x.pot);
-    openSheet('Mutatie', `<div class="card tight"><div class="kv"><span>${x.kind === 'opname' ? 'Opname' : x.kind === 'kas' ? 'Kasverschil' : esc(p?.name || '')}</span><b>${eur2(x.amt)}</b></div><div class="kv"><span>Datum</span><b>${dLong(fromIso(x.date))}</b></div>${x.note ? `<div class="kv"><span>Notitie</span><b>${esc(x.note)}</b></div>` : ''}</div>
+    openSheet('Mutatie', `<div class="card tight"><div class="kv"><span>${x.kind === 'opname' ? 'Opname' : x.kind === 'kas' ? 'Kasverschil' : x.kind === 'koop' ? 'Gekocht: ' + esc(S.assets.find(a => a.id === x.asset)?.name || '') : esc(p?.name || '')}</span><b>${eur2(x.amt)}</b></div><div class="kv"><span>Datum</span><b>${dLong(fromIso(x.date))}</b></div>${x.note ? `<div class="kv"><span>Notitie</span><b>${esc(x.note)}</b></div>` : ''}</div>
       <button class="btn danger" data-act="del-move-do" data-id="${x.id}">Verwijderen</button>`);
   },
   'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
+  'chart-mode': el => switchChart(el.dataset.mode),
+  'prog-mode': el => { ui.progMode = el.dataset.mode; render(); },
   'sheet-pots': () => sheetPots(),
   'edit-savpot': el => sheetSavPot(el.dataset.id),
   'save-savpot': el => {
@@ -1540,9 +1719,10 @@ const ACT = {
   'clear-tx-do': () => { S.tx = []; S.lastImport = null; save(); closeSheet(); render(); toast('Transacties gewist'); },
   rebase: () => confirmSheet('Prognose begin jaar vastzetten?', 'De lijn "prognose begin jaar" in de grafiek wordt vervangen door je huidige plan.', 'rebase-do'),
   'rebase-do': () => { S.baseline = null; model(); save(); closeSheet(); render(); toast('Vastgezet'); },
-  'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor 31 december wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
+  'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
   'new-year-do': () => { const m = model(), ny = S.settings.year + 1, had = !!S.yearSet[ny]; switchYear(ny);
-    if (!had) { S.settings.startSavings = r2(m.eind + (plan().sparen[0] || 0)); S.settings.invStart = r2(m.invEnd); } save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
+    if (!had) S.settings.startSavings = r2(m.eind + (plan().sparen[0] || 0));
+    for (const x of m.assets) if (x.a.start[ny] == null) x.a.start[ny] = r2(x.end); save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
 };
 function updateGridTotal(g) { const t = $(`#grid-total-${g}`); if (t) t.textContent = eur(sum(gridVals(g))); const j = $(`#d-${g}-j`); if (j && (g === 'doel' || g === 'grens') && document.activeElement !== j) j.value = numIn(sum(gridVals(g))); }
 
