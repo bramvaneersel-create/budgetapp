@@ -598,7 +598,8 @@ const vrijPots = () => S.pots.filter(p => p.vrij);
 const spaarPosts = () => S.pots.filter(p => !p.vrij);
 
 /* ───────────── schermen ───────────── */
-const pendingHtml = () => S.pending && S.pending.items.length ? `<div class="banner"><span>Nog ${S.pending.items.length} transacties te bekijken</span><button data-act="bank-resume">Verder</button></div>` : '';
+const pendN = () => S.pending && S.pending.items ? S.pending.items.filter(t => !t.done).length : 0;
+const pendingHtml = () => S.pending && S.pending.items.length && !BIMP ? `<div class="banner"><span>Nog ${pendN()} transacties te bekijken</span><button data-act="bank-resume">Verder</button></div>` : '';
 function renderDash(m) {
   let h = header('Overzicht', `Boekjaar ${m.y}`) + pendingHtml();
   if (!S.lines.length && !S.dyme.length) {
@@ -867,7 +868,7 @@ function renderInstel(m) {
     <button class="list-btn" data-act="new-year"><span>Nieuw boekjaar starten</span><span class="r">${st.year + 1}</span></button></div>`;
   h += `<h2>Transacties</h2><div class="card tight">
     <button class="list-btn" data-act="pick-dyme"><span>Bank- of Dyme-export inlezen</span><span class="r">${S.tx.length}</span></button>
-    ${S.pending && S.pending.items.length ? `<button class="list-btn" data-act="bank-resume"><span>Import afmaken</span><span class="r">${S.pending.items.length}</span></button>` : ''}
+    ${S.pending && S.pending.items.length ? `<button class="list-btn" data-act="bank-resume"><span>Import afmaken</span><span class="r">${pendN()}</span></button>` : ''}
     <button class="list-btn" data-act="sheet-rules"><span>Regels voor indelen</span><span class="r">${Object.keys(S.rules || {}).length}</span></button>
     <button class="list-btn" data-act="sheet-catmap"><span>Categorieën koppelen</span><span class="r">${Object.keys(dymeCats()).length}</span></button>
     <button class="list-btn danger" data-act="clear-tx"><span>Transacties wissen</span><span class="r"></span></button></div>`;
@@ -1569,7 +1570,20 @@ function bankRow(t) {
   return `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
     <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><select class="msel" data-bk="${t.id}" aria-label="Maand">${monthOptions(t.k)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
 }
+function bankDraft() {   // tussenstand steeds bewaren, zodat er nooit werk verloren gaat
+  S.pending = { y: S.settings.year, items: BIMP.items, dup: BIMP.dup || 0, skipped: BIMP.skipped || 0 }; S.ownIbans = [...BIMP.own];
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+}
 function sheetBankReview() {
+  bankDraft();
+  if (BIMP.confirm) {
+    const done = BIMP.items.filter(t => t.done).length, rest = BIMP.items.length - done;
+    return openSheet('Bankexport inlezen', `<div class="card"><div class="lbl">Import afsluiten?</div>
+      <p style="margin:8px 0 0">${done} afgehandeld · ${rest} nog te bekijken.</p></div>
+      <button class="btn primary" data-act="bank-back">Terug naar import</button>
+      <button class="btn" data-act="bank-close-keep">Afsluiten en later verder</button>
+      <button class="btn danger" data-act="bank-discard">Import weggooien</button>`, { kind: 'bankrev', closeLabel: 'Terug' });
+  }
   if (BIMP.sim) return sheetBankSim();
   const it = BIMP.items, todo = it.filter(t => !t.done), done = it.filter(t => t.done), grp = { check: [], auto: [], ign: [] };
   // groep ligt vast bij het inlezen: een andere keuze verplaatst de transactie pas na het vinkje
@@ -1662,7 +1676,7 @@ function bankLater() {
 }
 function bankResume() {
   if (!S.pending || !S.pending.items.length) return;
-  BIMP = { items: S.pending.items, dup: 0, skipped: 0, own: new Set(S.ownIbans || []), open: {} };
+  BIMP = { items: S.pending.items, dup: S.pending.dup || 0, skipped: S.pending.skipped || 0, own: new Set(S.ownIbans || []), open: {} };
   sheetBankReview();
 }
 // Een transactie later anders indelen (vanuit de details van een budget)
@@ -1953,7 +1967,12 @@ const val = id => $(id)?.value ?? '';
 const gridVals = g => { const v = z12(); $$(`[data-grid="${g}"]`).forEach(i => { const n = parseNum(i.value); v[+i.dataset.k] = isNaN(n) ? 0 : Math.abs(n); }); return v; };
 const ACT = {
   tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); const t = el.dataset.scroll && document.getElementById(el.dataset.scroll); if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0); },
-  'close-sheet': () => { closeSheet(); IMP = null; BIMP = null; BPRE = null; },
+  'close-sheet': () => {
+    if (BIMP && $('#sheet-root .sheet[data-kind="bankrev"]')) { BIMP.sim = null; BIMP.confirm = true; return sheetBankReview(); }   // nooit zomaar je werk weggooien
+    closeSheet(); IMP = null; BIMP = null; BPRE = null; },
+  'bank-back': () => { BIMP.confirm = false; sheetBankReview(); },
+  'bank-close-keep': () => { BIMP.confirm = false; bankLater(); },
+  'bank-discard': () => { BIMP = null; S.pending = null; save(); closeSheet(); render(); toast('Import weggegooid'); },
   'sheet-opname': () => sheetMove('opname'),
   'sheet-uitgave': el => sheetMove('uitgave', el.dataset.pot),
   'sheet-saldo': () => sheetSaldo(),

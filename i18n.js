@@ -317,5 +317,8 @@ window.I18N_EN = [
   ['Later afmaken · {} opslaan, {} bewaren', 'Finish later · save {}, keep {}'], ['Zelfde naam ({})', 'Same name ({})'], ['Alles uit', 'Deselect all'], ['Alles aan', 'Select all'],
   ['Elke transactie komt in de maand van haar eigen datum; dat kun je later per transactie aanpassen.', 'Each transaction goes into the month of its own date; you can change that per transaction later.'],
   ['nu: {} · {}', 'now: {} · {}'], ['{} opgeslagen · {} bewaard voor later', '{} saved · {} kept for later'],
-  ['Nog {} transacties te bekijken', '{} transactions left to review'], ['Import afmaken', 'Finish import']
+  ['Nog {} transacties te bekijken', '{} transactions left to review'], ['Import afmaken', 'Finish import'],
+  // v30: import nooit zomaar sluiten
+  ['Terug', 'Back'], ['Import afsluiten?', 'Close import?'], ['{} afgehandeld · {} nog te bekijken.', '{} done · {} left to review.'], ['Terug naar import', 'Back to import'],
+  ['Afsluiten en later verder', 'Close and continue later'], ['Import weggooien', 'Discard import'], ['Import weggegooid', 'Import discarded']
 ];
