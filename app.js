@@ -1493,7 +1493,9 @@ function bankSim(a, b) {
 function sheetBankReview() {
   if (BIMP.sim) return sheetBankSim();
   const it = BIMP.items, todo = it.filter(t => !t.done), done = it.filter(t => t.done), grp = { check: [], auto: [], ign: [] };
-  for (const t of todo) (t.how === 'onzeker' || !t.target ? grp.check : t.target === '__ignore' ? grp.ign : grp.auto).push(t);
+  // groep ligt vast bij het inlezen: een andere keuze verplaatst de transactie pas na het vinkje
+  for (const t of it) if (!t.grp) t.grp = t.how === 'onzeker' || !t.target ? 'check' : t.target === '__ignore' ? 'ign' : 'auto';
+  for (const t of todo) grp[t.grp].push(t);
   const row = t => `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
     <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
   const drow = t => `<div class="brow done">${bankRowInfo(t)}<span class="dn" translate="no">→ ${esc(T(targetName(t.target)))}</span><button class="undo-btn" data-act="bank-undo" data-id="${t.id}">Terugzetten</button></div>`;
@@ -1886,7 +1888,7 @@ const ACT = {
   'bank-do': () => bankCommit(),
   'bank-ok': el => bankOk(el.dataset.id),
   'bank-undo': el => { const t = BIMP.items.find(x => x.id === el.dataset.id); if (t) t.done = false; sheetBankReview(); },
-  'bank-ok-all': el => { const k = el.dataset.k; for (const t of BIMP.items) if (!t.done && t.target && t.how !== 'onzeker' && (k === 'ign' ? t.target === '__ignore' : t.target !== '__ignore')) t.done = true; sheetBankReview(); toast('Doorgestuurd'); },
+  'bank-ok-all': el => { const k = el.dataset.k; for (const t of BIMP.items) if (!t.done && t.target && t.grp === k) t.done = true; sheetBankReview(); toast('Doorgestuurd'); },
   'bank-sim-do': () => bankSimDone(true),
   'bank-sim-skip': () => bankSimDone(false),
   'edit-tx': el => sheetTx(el.dataset.id),

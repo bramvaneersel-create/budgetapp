@@ -351,3 +351,4 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .brow.sim input{width:22px;height:22px;margin-top:2px;accent-color:var(--ok)}
 .brow.sim .cur{grid-column:2/-1;font-size:12px;color:var(--muted)}
 .sim-src .lbl b{color:var(--ink)}
+.splash-ver{position:absolute;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom));text-align:center;font-size:11px;color:#8A857C;letter-spacing:.04em}
