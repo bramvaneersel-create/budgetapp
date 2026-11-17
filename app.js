@@ -99,18 +99,19 @@ function load() {
 function balanceAt(d, excl) {
   const y = +S.settings.year, P = periods(y), pl = plan(), r = (+S.settings.interest || 0) / 100 / 12, start = +S.settings.startSavings || 0;
   let kd = periodOf(P, fromIso(d)); if (kd < 0) return start; kd = Math.min(kd, 11);
+  const pa = planActual(pl, lineActuals(y, P), periodOf(P, today()));
   const act = z12();
   for (const m of S.moves) {
     if (m.id === excl || m.date > d) continue;
     const t = fromIso(m.date); if (t.getFullYear() !== y) continue;
-    const k = Math.max(0, Math.min(11, periodOf(P, t)));
+    const k = m.k != null && m.ky === y ? m.k : Math.max(0, Math.min(11, periodOf(P, t)));
     if (m.kind === 'opname') act[k] += m.amt;
     else if (m.kind === 'kas') act[k] -= m.amt;
     else if (m.kind === 'koop') { if (m.src !== 'lopend') act[k] += m.amt; }
     else { const p = S.pots.find(x => x.id === m.pot); if (p && p.acct === 'spaar') act[k] += m.amt; }
   }
   let b = start;
-  for (let k = 0; k <= kd; k++) { b += (k > 0 ? pl.sparen[k] : 0) - act[k]; if (k < kd) b += b * r; }
+  for (let k = 0; k <= kd; k++) { b += (k > 0 ? pa.sparen[k] : 0) - act[k]; if (k < kd) b += b * r; }
   return b;
 }
 const saldoEntries = () => S.moves.filter(m => m.kind === 'kas' && m.saldo != null).sort((a, b) => a.date.localeCompare(b.date));
@@ -240,7 +241,7 @@ function aggregate(P) {
   const ids = new Set(S.dyme.map(d => d.id)), sp = P.map(() => ({})), unmapped = {};
   let first = null;
   for (const t of S.tx) {
-    const k = periodOf(P, fromIso(t.date)); if (k < 0 || k > 11) continue;
+    const k = txK(t, P, +S.settings.year); if (k < 0 || k > 11) continue;
     const id = txTarget(t); if (id === '__ignore' || (id && (id.startsWith('pot:') || id.startsWith('line:')))) continue;
     if (!id || !ids.has(id)) { unmapped[t.cat] = (unmapped[t.cat] || 0) + t.amt; continue; }
     sp[k][id] = (sp[k][id] || 0) + t.amt;
@@ -310,6 +311,7 @@ function donut(pots) {
 function model() {
   const y = +S.settings.year, P = periods(y), T = today(), pl = plan();
   const cur = periodOf(P, T), inYear = cur >= 0 && cur < 12;
+  const LA = lineActuals(y, P), pa = planActual(pl, LA, cur);   // voorbije maanden: werkelijke stortingen uit de bankimport
   const frac = inYear ? (dayDiff(P[cur].start, T) + 1) / P[cur].days : (cur > 11 ? 1 : 0);
   const elapsed = cur < 0 ? 0 : cur > 11 ? 12 : cur + frac;
   const { sp, first, unmapped } = aggregate(P);
@@ -339,7 +341,7 @@ function model() {
   let firstVrijMove = null;
   for (const m of S.moves) {
     const dt = fromIso(m.date); if (dt < yS || dt > yE) continue;
-    const k = clampK(dt);
+    const k = m.k != null && m.ky === y ? m.k : clampK(dt);
     if (m.kind === 'opname') opn[k] += m.amt;
     else if (m.kind === 'kas') { kas[k] += m.amt; potSpent.kas = (potSpent.kas || 0) + m.amt; }
     else if (m.kind === 'koop') (m.src === 'lopend' ? lopUitg : koopSp)[k] += m.amt;
@@ -399,7 +401,7 @@ function model() {
   let bal = start, rente = 0, balA = start, renteA = 0;
   const fcPath = [start], periodStart = z12();   // saldo na elke periode; saldo op elke salarisdag (na storting)
   for (let k = 0; k < 12; k++) {
-    const dep = k > 0 ? pl.sparen[k] : 0;
+    const dep = k > 0 ? pa.sparen[k] : 0;
     const act = opn[k] + spaarUitg[k] + koopSp[k] - kas[k];
     const fut = k >= Math.max(cur, 0) ? predOpn[k] + predSpaar[k] : 0;
     periodStart[k] = bal + dep;
@@ -426,7 +428,7 @@ function model() {
   const vrijExp = sum(dyExp) + sum(S.pots.filter(p => p.vrij).map(p => (potSpent[p.id] || 0) + (vrijRem[p.id] || 0) * scale));
 
   const AM = assetModel(y, P, T);
-  return { y, P, T, cur, inYear, frac, elapsed, pl, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
+  return { y, P, T, cur, inYear, frac, elapsed, pl, pa, LA, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
     potSpent, potRem, predOpn, predLop, predSpaar, result, ingEnd, start, eind, savingsNow, rente, renteA, planEind: pb, planRente: prente,
     planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pl.sparen.slice(1)),
     ...(() => {
@@ -596,8 +598,9 @@ const vrijPots = () => S.pots.filter(p => p.vrij);
 const spaarPosts = () => S.pots.filter(p => !p.vrij);
 
 /* ───────────── schermen ───────────── */
+const pendingHtml = () => S.pending && S.pending.items.length ? `<div class="banner"><span>Nog ${S.pending.items.length} transacties te bekijken</span><button data-act="bank-resume">Verder</button></div>` : '';
 function renderDash(m) {
-  let h = header('Overzicht', `Boekjaar ${m.y}`);
+  let h = header('Overzicht', `Boekjaar ${m.y}`) + pendingHtml();
   if (!S.lines.length && !S.dyme.length) {
     return h + `<div class="card prose"><p><b>Welkom.</b> Lees je jaarbudget in, of bekijk de app eerst met demogegevens.</p>
       <button class="btn primary" data-act="pick-budget">Budget inlezen</button>
@@ -686,7 +689,7 @@ function jaarBudgetsHtml(m, compact) {
 }
 
 function renderBudget(m) {
-  let h = header('Budgetten', `Boekjaar ${m.y}`);
+  let h = header('Budgetten', `Boekjaar ${m.y}`) + pendingHtml();
   if (!S.lines.length && !S.dyme.length) return h + `<div class="card empty">Nog geen budget. Lees er een in via Instellingen.</div>`;
   const mode = ui.budMode;
   h += `<div class="seg"><button data-act="budmode" data-mode="periode" class="${mode === 'periode' ? 'on' : ''}">Deze periode</button><button data-act="budmode" data-mode="jaar" class="${mode === 'jaar' ? 'on' : ''}">Dit jaar</button></div>`;
@@ -736,24 +739,30 @@ function renderBudget(m) {
   }
 
   // Maandplan
-  const pm = ui.planMonth ?? Math.min(Math.max(m.cur, 0), 11), pl = m.pl;
-  const lAct = {}; for (const t of S.tx) { const g = txTarget(t); if (!g || !g.startsWith('line:')) continue; if (periodOf(m.P, fromIso(t.date)) !== pm) continue; const l = S.lines.find(x => 'line:' + x.id === g); if (l) lAct[l.id] = (lAct[l.id] || 0) + (l.type === 'inkomen' ? -t.amt : t.amt); }
-  const paid = l => { if (lAct[l.id] == null) return ''; const plan = l.rest ? pl.restM[pm] : +l.m[pm] || 0, ok = Math.abs(lAct[l.id] - plan) <= Math.max(1, plan * 0.01);
-    return `<small class="paid ${ok ? 'ok' : 'diff'}">${l.type === 'inkomen' ? 'ontvangen' : 'betaald'} ${eur(lAct[l.id])}${ok ? ' ✓' : ''}</small>`; };
-  const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="line-detail" data-kind="line" data-id="${l.id}" data-k="${pm}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}${paid(l)}</span><span class="r${l.rest && pl.restM[pm] < 0 ? ' neg' : ''}">${sign}${eur(l.rest ? pl.restM[pm] : l.m[pm])}</span></button>`).join('');
-  const grp = (t, label) => S.lines.some(l => l.type === t) ? `<div class="list-btn plain grp"><span>${label}</span><span class="r">−${eur(pl[t][pm])}</span></div>` + rows(t, '') : '';
+  const pm = ui.planMonth ?? Math.min(Math.max(m.cur, 0), 11), pl = m.pl, pt = m.pa;   // pt: plan met werkelijke bedragen in voorbije maanden
+  const LA = m.LA, past = pm < m.cur && LA.has[pm];
+  const lAct = {}; for (const l of S.lines) if (LA.act[l.id] && (LA.act[l.id][pm] || past)) lAct[l.id] = LA.act[l.id][pm];
+  const planOf = l => l.rest ? pl.restM[pm] : +l.m[pm] || 0;
+  const amtOf = l => past ? (lAct[l.id] || 0) : planOf(l);   // voorbije maand: werkelijk
+  const paid = l => {
+    const plan = planOf(l), a = lAct[l.id];
+    if (past) return a == null || !a ? (plan ? `<small class="paid diff">geen betaling gevonden · gepland ${eur(plan)}</small>` : '') : `<small class="paid ${Math.abs(a - plan) <= Math.max(1, plan * 0.01) ? 'ok' : 'diff'}">werkelijk · gepland ${eur(plan)}</small>`;
+    if (a == null) return ''; const ok = Math.abs(a - plan) <= Math.max(1, plan * 0.01);
+    return `<small class="paid ${ok ? 'ok' : 'diff'}">${l.type === 'inkomen' ? 'ontvangen' : 'betaald'} ${eur(a)}${ok ? ' ✓' : ''}</small>`; };
+  const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="line-detail" data-kind="line" data-id="${l.id}" data-k="${pm}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}${paid(l)}</span><span class="r${amtOf(l) < 0 ? ' neg' : ''}">${sign}${eur(amtOf(l))}</span></button>`).join('');
+  const grp = (t, label) => S.lines.some(l => l.type === t) ? `<div class="list-btn plain grp"><span>${label}</span><span class="r">−${eur(pt[t][pm])}</span></div>` + rows(t, '') : '';
   const ex = S.extraInc.filter(e => e.k === pm);
-  const uitTot = pl.vast[pm] + pl.overboeking[pm] + pl.sparen[pm];
-  const onder = pl.vrij[pm] - pl.dd[pm] - pl.lopDoel / 12;
+  const uitTot = pt.vast[pm] + pt.overboeking[pm] + pt.sparen[pm];
+  const onder = pt.vrij[pm] - pl.dd[pm] - pl.lopDoel / 12;
   h += `<h2>Maandplan</h2><div class="month-chips">${MON.map((n, i) => `<button data-act="plan-month" data-k="${i}" class="${i === pm ? 'on' : ''}">${n}</button>`).join('')}</div>
-    <div class="section-head in"><span>Inkomsten ${MONF[pm]}</span><b>+${eur(pl.inkomen[pm])}</b></div>
+    <div class="section-head in"><span>Inkomsten ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>+${eur(pt.inkomen[pm])}</b></div>
     <div class="card tight">${rows('inkomen', '')}
       <div class="list-btn plain grp"><span>Overige inkomsten</span><span class="r">${eur(pl.extra[pm])}</span></div>
       ${ex.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('')}
       <button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button></div>
-    <div class="section-head out"><span>Uitgaven ${MONF[pm]}</span><b>−${eur(uitTot)}</b></div>
+    <div class="section-head out"><span>Uitgaven ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>−${eur(uitTot)}</b></div>
     <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
-    <div class="section-head"><span>Vrije ruimte ${MONF[pm]}</span><b>${eur(pl.vrij[pm])}</b></div>
+    <div class="section-head"><span>Vrije ruimte ${MONF[pm]}</span><b>${eur(pt.vrij[pm])}</b></div>
     <div class="card tight">
     <div class="list-btn plain sub-row" style="border-top:0"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
     ${S.dyme.map(d => { const sp = m.sp[pm]?.[d.id] || 0, dl = +d.doel[pm] || 0; return `<button class="list-btn sub-row sub2" data-act="line-detail" data-kind="dyme" data-id="${d.id}" data-k="${pm}"><span>${esc(d.name)}</span><span class="r ${sp > (+d.grens[pm] || dl) + 0.5 ? 'neg' : ''}">${eur(sp)} <small class="sub">/ ${eur(dl)}</small></span></button>`; }).join('')}
@@ -858,6 +867,7 @@ function renderInstel(m) {
     <button class="list-btn" data-act="new-year"><span>Nieuw boekjaar starten</span><span class="r">${st.year + 1}</span></button></div>`;
   h += `<h2>Transacties</h2><div class="card tight">
     <button class="list-btn" data-act="pick-dyme"><span>Bank- of Dyme-export inlezen</span><span class="r">${S.tx.length}</span></button>
+    ${S.pending && S.pending.items.length ? `<button class="list-btn" data-act="bank-resume"><span>Import afmaken</span><span class="r">${S.pending.items.length}</span></button>` : ''}
     <button class="list-btn" data-act="sheet-rules"><span>Regels voor indelen</span><span class="r">${Object.keys(S.rules || {}).length}</span></button>
     <button class="list-btn" data-act="sheet-catmap"><span>Categorieën koppelen</span><span class="r">${Object.keys(dymeCats()).length}</span></button>
     <button class="list-btn danger" data-act="clear-tx"><span>Transacties wissen</span><span class="r"></span></button></div>`;
@@ -969,12 +979,12 @@ function detailItems(kind, id, b, P, y) {
   if (kind === 'pot') for (const mv of S.moves) {
     if (mv.kind !== 'uitgave' || mv.pot !== id) continue;
     const dt = fromIso(mv.date); if (dt.getFullYear() !== y) continue;
-    list.push({ k: Math.max(0, Math.min(11, periodOf(P, dt))), date: mv.date, name: mv.note || b.name, sub: '', amt: mv.amt, mid: mv.txId ? null : mv.id, tid: mv.txId });
+    list.push({ k: mv.k != null && mv.ky === y ? mv.k : Math.max(0, Math.min(11, periodOf(P, dt))), date: mv.date, name: mv.note || b.name, sub: '', amt: mv.amt, mid: mv.txId ? null : mv.id, tid: mv.txId });
   } else {
     const tg = kind === 'line' ? 'line:' + id : id, inc = kind === 'line' && b.type === 'inkomen';
     for (const t of S.tx) {
       if (txTarget(t) !== tg) continue;
-      const k = periodOf(P, fromIso(t.date)); if (k < 0 || k > 11) continue;
+      const k = txK(t, P, y); if (k < 0 || k > 11) continue;
       list.push({ k, date: t.date, name: t.desc || t.cat, sub: t.src === 'bank' ? '' : t.cat, amt: inc ? -t.amt : t.amt, tid: t.id });
     }
   }
@@ -1358,6 +1368,33 @@ function bankKey(name) {
 }
 const tokens = s => [...new Set(normTxt(s).replace(/[0-9]+/g, ' ').split(/[^a-zà-ÿ&']+/).filter(x => x.length > 2 && !STOP.has(x)))];
 const oName = t => t.o ? t.o.desc : t.desc;
+// Maand (periode) waarin een transactie telt: zelf gekozen, anders de periode van de datum
+const txK = (t, P, y) => t.k != null && t.ky === y ? t.k : periodOf(P, fromIso(t.date));
+// Werkelijke bedragen per post uit het maandplan (uit de bankimport). Overboekingen terug van de spaarrekening
+// tellen negatief; een terugboeking die je ook als 'Geld opnemen' hebt ingevoerd, telt maar één keer.
+function lineActuals(y, P) {
+  const act = {}, has = Array(12).fill(false), opn = S.moves.filter(m => m.kind === 'opname');
+  for (const t of S.tx) {
+    if (t.src !== 'bank') continue;
+    const k = txK(t, P, y); if (k < 0 || k > 11) continue; has[k] = true;
+    const g = txTarget(t); if (!g || !g.startsWith('line:')) continue;
+    const l = S.lines.find(x => 'line:' + x.id === g); if (!l) continue;
+    if (l.type === 'sparen' && t.amt < 0 && opn.some(m => Math.abs(m.amt + t.amt) < 0.01 && Math.abs(dayDiff(fromIso(m.date), fromIso(t.date))) <= 5)) continue;
+    (act[l.id] = act[l.id] || z12())[k] += l.type === 'inkomen' ? -t.amt : t.amt;
+  }
+  return { act, has };
+}
+function planActual(pl, A, cur) {   // plan met werkelijke bedragen voor voorbije maanden
+  const q = { ...pl, inkomen: [...pl.inkomen], vast: [...pl.vast], sparen: [...pl.sparen], overboeking: [...pl.overboeking], vrij: [...pl.vrij] };
+  for (let k = 0; k < Math.min(cur, 12); k++) {
+    if (!A.has[k]) continue;
+    for (const l of S.lines) {
+      const plan = l.rest ? pl.restM[k] : +l.m[k] || 0, a = A.act[l.id] ? A.act[l.id][k] : 0, d = a - plan; if (!d) continue;
+      q[l.type][k] += d; q.vrij[k] += l.type === 'inkomen' ? d : -d;
+    }
+  }
+  return q;
+}
 const txTarget = t => t.bud !== undefined ? t.bud : S.catMap[t.cat];
 function ruleFor(t) {
   const R = S.rules || {};
@@ -1450,12 +1487,38 @@ function onBankRows(rows) {
   const key = t => `${t.o ? t.o.date : t.date}|${t.amt}|${t.o ? t.o.desc : t.desc}|${t.memo}`, have = {}, seen = {};
   for (const t of S.tx) if (t.src === 'bank') { const k = key(t); have[k] = (have[k] || 0) + 1; }
   for (const k of S.txGone || []) have[k] = (have[k] || 0) + 1;  // bewust verwijderde transacties niet opnieuw inlezen
+  for (const t of (S.pending && S.pending.items) || []) { const k = key(t); have[k] = (have[k] || 0) + 1; }  // nog te bekijken (later afmaken)
   const nb = trainNB(), fresh = [], P = periods(S.settings.year); let dup = 0;
   for (const t of items) { const k = key(t); seen[k] = (seen[k] || 0) + 1; if (seen[k] <= (have[k] || 0)) { dup++; continue; } fresh.push(t); }
-  if (!fresh.length) return toast('Geen nieuwe transacties — alles was al ingelezen');
+  if (!fresh.length) { if (S.pending && S.pending.items.length) return bankResume(); return toast('Geen nieuwe transacties — alles was al ingelezen'); }
+  // Periode kiezen: alleen het budgetjaar, en niet de periode die al via Dyme is ingelezen (anders dubbel)
+  const y = S.settings.year, y0 = `${y}-01-01`, y1 = `${y}-12-31`;
+  const dy = S.tx.filter(x => x.src !== 'bank' && x.date >= y0 && x.date <= y1).map(x => x.date).sort().pop();
+  const def = dy ? iso(addDays(fromIso(dy), 1)) : y0;
+  fresh.sort((a, b) => a.date.localeCompare(b.date));
+  BPRE = { fresh, dup, own, nb, P, y0, y1, dy, from: def < y0 ? y0 : def };
+  if (fresh[0].date < BPRE.from || fresh[fresh.length - 1].date > y1) return sheetBankFrom();
+  bankClassify(fresh);
+}
+let BPRE = null;
+function bankCount() { return BPRE.fresh.filter(t => t.date >= BPRE.from && t.date <= BPRE.y1).length; }
+function sheetBankFrom() {
+  const f = BPRE.fresh, y = S.settings.year, n = bankCount(), out = f.filter(t => t.date < BPRE.y0 || t.date > BPRE.y1).length;
+  openSheet('Bankexport inlezen', `<div class="card"><div class="kv"><span>In dit bestand</span><b>${f.length} nieuwe transacties</b></div>
+    <div class="kv"><span>Periode</span><b>${dShort(fromIso(f[0].date))} ${f[0].date.slice(0, 4)} – ${dShort(fromIso(f[f.length - 1].date))} ${f[f.length - 1].date.slice(0, 4)}</b></div>
+    ${out ? `<div class="kv"><span>Buiten budgetjaar ${y}</span><b>${out}</b></div>` : ''}
+    ${BPRE.dy ? `<div class="kv"><span>Al ingelezen via Dyme t/m</span><b>${dLong(fromIso(BPRE.dy))}</b></div>` : ''}</div>
+    <label class="fld"><span>Inlezen vanaf</span><input type="date" id="bank-from" data-bfrom="1" value="${BPRE.from}" min="${BPRE.y0}" max="${BPRE.y1}"></label>
+    <p class="hint">Alleen transacties in budgetjaar ${y} tellen mee. ${BPRE.dy ? 'Wat al via Dyme in de app staat, sla je over — anders tellen die uitgaven dubbel.' : 'Kies een latere datum als je oudere transacties niet nodig hebt.'}</p>
+    <button class="btn primary" data-act="bank-from-do" id="bank-from-btn">${n} transacties bekijken</button>`, { kind: 'bankfrom', closeLabel: 'Annuleer' });
+}
+function bankClassify(list) {
+  const { own, nb, P, dup } = BPRE, fresh = list, skipped = BPRE.fresh.length - list.length;
+  if (!fresh.length) { BPRE = null; closeSheet(); return toast('Geen transacties in deze periode'); }
   const hist = S.tx.filter(x => x.src === 'bank'), ctx = { own, nb, hist, P, y: S.settings.year };
-  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); }
-  BIMP = { items: fresh.sort((a, b) => b.date.localeCompare(a.date)), dup, own, open: {} };
+  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); t.ky = S.settings.year; t.k = suggestK(t, P); }
+  const pend = (S.pending && S.pending.y === S.settings.year) ? S.pending.items : [];
+  BIMP = { items: [...fresh, ...pend].sort((a, b) => b.date.localeCompare(a.date)), dup, skipped, own, open: {} }; BPRE = null;
   sheetBankReview();
 }
 function targetOptions(sel, allowEmpty) {
@@ -1473,22 +1536,38 @@ function targetName(v) {
   if (v && v.startsWith('line:')) return S.lines.find(l => 'line:' + l.id === v)?.name || '?';
   return S.dyme.find(d => d.id === v)?.name || '—';
 }
+// Voorgestelde maand: de periode van de datum; bij een post uit het maandplan de maand waarvan het geplande bedrag past
+function suggestK(t, P) {
+  const d = fromIso(t.date), y = S.settings.year;
+  let base = periodOf(P, d); base = base < 0 ? (d.getFullYear() < y ? 0 : 11) : Math.min(base, 11);
+  if (t.target && t.target.startsWith('line:')) {
+    const l = S.lines.find(x => 'line:' + x.id === t.target), pl = plan();
+    if (l) { const amt = Math.abs(t.amt), pv = k => k < 0 || k > 11 ? -1 : (l.rest ? pl.restM[k] : +l.m[k] || 0), ok = k => Math.abs(pv(k) - amt) <= Math.max(0.5, amt * 0.005);
+      if (!ok(base)) { if (ok(base + 1) && dayDiff(d, P[base].end) <= 6) return base + 1; if (ok(base - 1) && dayDiff(P[base].start, d) <= 6) return base - 1; } }
+  }
+  if (dayDiff(d, P[base].end) <= 2 && base < 11 && t.target && t.target.startsWith('line:')) return base + 1;   // vlak voor salaris: hoort meestal bij de nieuwe maand
+  return base;
+}
+function monthOptions(k) { return MON.map((n, i) => `<option value="${i}"${i === k ? ' selected' : ''}>${n}</option>`).join(''); }
 const BHOW = { regel: 'jouw regel', geleerd: 'geleerd', herkend: 'herkend', terugkerend: 'terugkerend', onzeker: 'controleer' };
 function bankRowInfo(t) {
-  return `<div class="bt"><b translate="no">${esc(t.desc || '(geen naam)')}</b><span>${dShort(fromIso(t.date))} · <span class="how ${t.how}">${BHOW[t.how]}</span>${t.why && t.how !== 'regel' ? ` · <span translate="no">${esc(T(t.why))}</span>` : ''}</span></div>
+  const cat = t.cat && !/^(ongecategoriseerd|overige overboekingen)$/i.test(t.cat) ? t.cat : '';
+  const why = t.how === 'regel' || !t.why || t.why === t.cat ? '' : t.why;
+  return `<div class="bt"><b translate="no">${esc(t.desc || '(geen naam)')}</b><span>${dShort(fromIso(t.date))} · <span class="how ${t.how}">${BHOW[t.how]}</span>${why ? ` · <span translate="no">${esc(T(why))}</span>` : ''}</span>
+    ${cat ? `<span class="cat-tag" translate="no">${esc(cat)}</span>` : ''}</div>
     <span class="ba ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' : ''}${eur2(Math.abs(t.amt))}</span>`;
 }
-// Hoe sterk lijkt transactie b op a (om mee te sturen naar hetzelfde budget)?
-function bankSim(a, b) {
-  if (a.iban && a.iban === b.iban) return 1;
-  const ka = bankKey(a.desc); if (ka && ka === bankKey(b.desc)) return 1;
-  let sc = 0;
-  if (a.cat && a.cat === b.cat && !/ongecategoriseerd|overige overboekingen/i.test(a.cat)) sc = Math.max(sc, 0.75);
-  if (b.target && b.target === a.target) sc = Math.max(sc, 0.65);
-  const ta = tokens(a.desc + ' ' + a.memo), tb = tokens(b.desc + ' ' + b.memo);
-  if (ta.length && tb.length) { const sh = ta.filter(w => tb.includes(w)).length, j = sh / new Set([...ta, ...tb]).size; if (j >= 0.25) sc = Math.max(sc, 0.5 + j / 2); }
-  if (Math.sign(a.amt) !== Math.sign(b.amt)) sc *= 0.6;
-  return sc;
+// Transacties die er (vrijwel zeker) bij horen: eerst exact dezelfde naam; anders dezelfde tegenrekening of winkelnaam
+function bankSimList(t) {
+  const open = BIMP.items.filter(x => !x.done && x !== t), nm = normTxt(t.desc);
+  const exact = open.filter(x => normTxt(x.desc) === nm);
+  if (exact.length) return exact;
+  const ka = bankKey(t.desc);
+  return open.filter(x => (t.iban && x.iban === t.iban) || (ka && ka.length >= 4 && bankKey(x.desc) === ka));
+}
+function bankRow(t) {
+  return `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
+    <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><select class="msel" data-bk="${t.id}" aria-label="Maand">${monthOptions(t.k)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
 }
 function sheetBankReview() {
   if (BIMP.sim) return sheetBankSim();
@@ -1496,46 +1575,45 @@ function sheetBankReview() {
   // groep ligt vast bij het inlezen: een andere keuze verplaatst de transactie pas na het vinkje
   for (const t of it) if (!t.grp) t.grp = t.how === 'onzeker' || !t.target ? 'check' : t.target === '__ignore' ? 'ign' : 'auto';
   for (const t of todo) grp[t.grp].push(t);
-  const row = t => `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
-    <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
-  const drow = t => `<div class="brow done">${bankRowInfo(t)}<span class="dn" translate="no">→ ${esc(T(targetName(t.target)))}</span><button class="undo-btn" data-act="bank-undo" data-id="${t.id}">Terugzetten</button></div>`;
+  const drow = t => `<div class="brow done">${bankRowInfo(t)}<span class="dn" translate="no">→ ${esc(T(targetName(t.target)))} · ${MON[t.k]}</span><button class="undo-btn" data-act="bank-undo" data-id="${t.id}">Terugzetten</button></div>`;
   const sec = (k, title, list, openDef, all) => {
     if (!list.length) return '';
     const open = BIMP.open[k] ?? openDef;
     return `<div class="bsec-row"><button class="bsec" data-act="bank-toggle" data-k="${k}"><span>${title} (${list.length})</span><span class="chev">${open ? '▾' : '▸'}</span></button>${all && list.some(t => t.target) ? `<button class="bsec-all" data-act="bank-ok-all" data-k="${k}">Alles akkoord</button>` : ''}</div>` +
-      (open ? `<div class="card tight">${list.map(k === 'done' ? drow : row).join('')}</div>` : '');
+      (open ? `<div class="card tight">${list.map(k === 'done' ? drow : bankRow).join('')}</div>` : '');
   };
   const spend = sum(it.filter(t => t.target && t.target !== '__ignore' && !String(t.target).startsWith('line:') && t.amt > 0).map(t => t.amt));
   const left = todo.filter(t => !t.target).length;
-  openSheet('Bankexport inlezen', `<p class="hint">${it.length} nieuwe transacties${BIMP.dup ? ` · ${BIMP.dup} al eerder ingelezen` : ''}. ${todo.length ? `Nog ${todo.length} te bekijken` : 'Alles bekeken'} · ${eur(spend)} naar je budgetten.</p>` +
+  openSheet('Bankexport inlezen', `<p class="hint"><span>${it.length} nieuwe transacties</span>${BIMP.dup ? `<span> · ${BIMP.dup} al eerder ingelezen</span>` : ''}${BIMP.skipped ? `<span> · ${BIMP.skipped} buiten gekozen periode</span>` : ''}. <span>${todo.length ? `Nog ${todo.length} te bekijken` : 'Alles bekeken'} · ${eur(spend)} naar je budgetten.</span></p>` +
     sec('check', 'Controleren', grp.check, true, false) + sec('auto', 'Ingedeeld', grp.auto, grp.check.length === 0, true) + sec('ign', 'Niet meegeteld', grp.ign, false, true) + sec('done', 'Afgehandeld', done, false, false) +
-    `<p class="hint">Tik op ✓ om een transactie door te sturen; de app laat dan zien welke andere transacties waarschijnlijk in hetzelfde budget horen. Wat je aanpast, onthoudt de app voor de volgende keer.</p>
-    <button class="btn primary" data-act="bank-do">${left ? `Opslaan (${left} nog niet ingedeeld)` : 'Opslaan'}</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+    `<p class="hint">Kies per transactie een budget en een maand en tik op ✓. Daarna toont de app transacties met dezelfde naam, zodat je die in één keer meestuurt.</p>
+    <button class="btn primary" data-act="bank-do">${left ? `Alles opslaan (${left} nog niet ingedeeld)` : 'Alles opslaan'}</button>
+    ${todo.length && done.length ? `<button class="btn" data-act="bank-later">Later afmaken · ${done.length} opslaan, ${todo.length} bewaren</button>` : todo.length ? `<button class="btn" data-act="bank-later">Later afmaken</button>` : ''}`, { kind: 'bankrev', closeLabel: 'Annuleer' });
 }
 function sheetBankSim() {
-  const { src, cands, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src);
-  openSheet('Bankexport inlezen', `<div class="card sim-src"><div class="lbl">Doorgestuurd naar <b translate="no">${esc(T(targetName(t.target)))}</b></div><div class="brow" style="border:0;padding-bottom:0">${bankRowInfo(t)}</div></div>
-    <h2>Horen deze er ook bij?</h2>
-    <div class="card tight">${cands.map(c => { const x = BIMP.items.find(y => y.id === c); return `<label class="brow sim"><input type="checkbox" data-simpick="${x.id}"${pick[x.id] ? ' checked' : ''}>${bankRowInfo(x)}<span class="cur" translate="no">nu: ${esc(T(targetName(x.target) || '—'))}</span></label>`; }).join('')}</div>
-    <button class="btn primary" data-act="bank-sim-do">${Object.values(pick).filter(Boolean).length ? `Ook doorsturen (${Object.values(pick).filter(Boolean).length})` : 'Verder'}</button>
-    <button class="btn" data-act="bank-sim-skip">Overslaan</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+  const { src, cands, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src), n = Object.values(pick).filter(Boolean).length, allOn = n === cands.length;
+  openSheet('Bankexport inlezen', `<div class="card sim-src"><div class="row"><div class="lbl">Doorgestuurd naar <b translate="no">${esc(T(targetName(t.target)))}</b> · ${MONF[t.k]}</div><button class="link" data-act="bank-sim-skip">Skip</button></div><div class="brow" style="border:0;padding-bottom:0">${bankRowInfo(t)}</div></div>
+    <div class="row" style="margin:18px 4px 8px"><h2 style="margin:0">Zelfde naam (${cands.length})</h2><button class="link" data-act="bank-sim-all">${allOn ? 'Alles uit' : 'Alles aan'}</button></div>
+    <div class="card tight">${cands.map(c => { const x = BIMP.items.find(y => y.id === c); return `<label class="brow sim"><input type="checkbox" data-simpick="${x.id}"${pick[x.id] ? ' checked' : ''}>${bankRowInfo(x)}<span class="cur" translate="no">nu: ${esc(T(targetName(x.target) || '—'))} · ${MON[x.k]}</span></label>`; }).join('')}</div>
+    <p class="hint">Elke transactie komt in de maand van haar eigen datum; dat kun je later per transactie aanpassen.</p>
+    <button class="btn primary" data-act="bank-sim-do">${n ? `Ook doorsturen (${n})` : 'Verder'}</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
   $('#sheet-root .sheet').scrollTop = 0;
 }
 function bankOk(id) {
   const t = BIMP.items.find(x => x.id === id); if (!t) return;
   if (!t.target) return toast('Kies eerst een budget');
-  t.done = true; if (t.how === 'onzeker') { t.learn = true; t.how = 'regel'; }
-  const cands = BIMP.items.filter(x => !x.done && x !== t).map(x => [x, bankSim(t, x)]).filter(([, v]) => v >= 0.5).sort((a, b) => b[1] - a[1]).slice(0, 30);
+  t.done = true; if (t.how === 'onzeker' || t.changed) { t.learn = true; if (t.how === 'onzeker') t.how = 'regel'; }
+  const cands = bankSimList(t).slice(0, 60);
   if (!cands.length) { toast('Doorgestuurd'); return sheetBankReview(); }
   BIMP.scroll = $('#sheet-root .sheet')?.scrollTop || 0;
-  BIMP.sim = { src: id, cands: cands.map(([x]) => x.id), pick: Object.fromEntries(cands.map(([x, v]) => [x.id, v >= 0.6])) };
+  BIMP.sim = { src: id, cands: cands.map(x => x.id), pick: Object.fromEntries(cands.map(x => [x.id, true])) };
   sheetBankReview();
 }
 function bankSimDone(apply) {
-  const { src, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src); let n = 0;
+  const { src, pick } = BIMP.sim, t = BIMP.items.find(x => x.id === src), P = periods(S.settings.year); let n = 0;
   if (apply) for (const [id, on] of Object.entries(pick)) if (on) {
     const x = BIMP.items.find(y => y.id === id); if (!x) continue;
-    if (x.target !== t.target) { x.target = t.target; x.changed = true; x.learn = true; x.how = 'regel'; }
+    if (x.target !== t.target) { x.target = t.target; x.changed = true; x.how = 'regel'; if (!x.kSet) x.k = suggestK(x, P); }
     x.done = true; n++;
   }
   BIMP.sim = null; sheetBankReview();
@@ -1550,26 +1628,42 @@ function learnRule(t, target) {
 function bankSetTarget(id, v) {
   const t = BIMP.items.find(x => x.id === id); if (!t) return;
   const k = bankKey(t.desc);
-  for (const x of BIMP.items) if (x === t || (k && bankKey(x.desc) === k && (x.how !== 'regel' || x.sib))) { x.target = v; if (x !== t) { x.how = 'regel'; x.sib = true; } x.changed = true; x.learn = x === t; }
+  const P = periods(S.settings.year), nm = normTxt(t.desc);
+  for (const x of BIMP.items) if (x === t || (!x.done && normTxt(x.desc) === nm && (x.how !== 'regel' || x.sib))) { x.target = v; if (x !== t) { x.how = 'regel'; x.sib = true; } x.changed = true; x.learn = x === t; if (!x.kSet) x.k = suggestK(x, P); }
   if (t.how === 'onzeker') t.how = 'regel';
   sheetBankReview();
 }
 function txMove(t) {  // jaarbudget-uitgave voor een banktransactie
   S.moves = S.moves.filter(m => m.txId !== t.id);
-  if (t.bud && t.bud.startsWith('pot:') && t.amt) S.moves.push({ id: uid(), kind: 'uitgave', pot: t.bud.slice(4), date: t.date, amt: t.amt, note: t.desc, txId: t.id });
+  if (t.bud && t.bud.startsWith('pot:') && t.amt) S.moves.push({ id: uid(), kind: 'uitgave', pot: t.bud.slice(4), date: t.date, amt: t.amt, note: t.desc, txId: t.id, ...(t.k != null ? { k: t.k, ky: t.ky } : {}) });
+}
+function bankStore(list) {
+  for (const t of list) {
+    if (t.learn && t.target) learnRule(t, t.target);
+    const x = { id: t.id, date: t.date, amt: t.amt, desc: t.desc, memo: t.memo, iban: t.iban, code: t.code, kindTxt: t.kindTxt, cat: t.cat, src: 'bank', k: t.k, ky: t.ky };
+    if (t.target && t.target !== S.catMap[t.cat]) x.bud = t.target;
+    S.tx.push(x); txMove(x);
+  }
+  return list.length;
 }
 function bankCommit() {
   S.ownIbans = [...BIMP.own];
-  let n = 0;
-  for (const t of BIMP.items) {
-    if (t.learn && t.target) learnRule(t, t.target);
-    const x = { id: t.id, date: t.date, amt: t.amt, desc: t.desc, memo: t.memo, iban: t.iban, code: t.code, kindTxt: t.kindTxt, cat: t.cat, src: 'bank' };
-    if (t.target && t.target !== S.catMap[t.cat]) x.bud = t.target;
-    if (!t.target) x.bud = undefined;
-    S.tx.push(x); txMove(x); n++;
-  }
+  const n = bankStore(BIMP.items); S.pending = null;
   S.lastImport = iso(today()); BIMP = null;
   save(); closeSheet(); render(); toast(`${n} transacties ingelezen`);
+}
+// Later afmaken: afgevinkte transacties opslaan, de rest bewaren tot je verder gaat
+function bankLater() {
+  S.ownIbans = [...BIMP.own];
+  const done = BIMP.items.filter(t => t.done), rest = BIMP.items.filter(t => !t.done);
+  bankStore(done); S.lastImport = iso(today());
+  S.pending = rest.length ? { y: S.settings.year, items: rest, dup: BIMP.dup || 0 } : null; BIMP = null;
+  save(); closeSheet(); render(); toast(rest.length ? `${done.length} opgeslagen · ${rest.length} bewaard voor later` : `${done.length} transacties ingelezen`);
+}
+function bankResume() {
+  if (!S.pending || !S.pending.items.length) return;
+  BIMP = { items: S.pending.items, dup: 0, skipped: 0, own: new Set(S.ownIbans || []), open: {} };
+  sheetBankReview();
 }
 // Een transactie later anders indelen (vanuit de details van een budget)
 function sheetTx(id) {
@@ -1580,7 +1674,8 @@ function sheetTx(id) {
     ${t.o ? `<div class="kv"><span>Origineel</span><b translate="no" style="font-weight:400;text-align:right;max-width:65%">${esc(t.o.desc)} · ${dShort(fromIso(t.o.date))}</b></div>` : ''}</div>
     <label class="fld"><span>Naam</span><input id="tx-name" value="${esc(t.desc)}"></label>
     <label class="fld"><span>Datum</span><input type="date" id="tx-date" value="${t.date}"></label>
-    <label class="fld"><span>Budget</span><select id="tx-target">${targetOptions(txTarget(t) || '', !txTarget(t))}</select></label>
+    <div class="fld-row"><label class="fld"><span>Budget</span><select id="tx-target">${targetOptions(txTarget(t) || '', !txTarget(t))}</select></label>
+    <label class="fld" style="flex:0 0 96px"><span>Maand</span><select id="tx-k">${monthOptions(Math.max(0, Math.min(11, txK(t, periods(S.settings.year), S.settings.year))))}</select></label></div>
     ${k ? `<label class="chk"><input type="checkbox" id="tx-learn"> <span>Altijd zo indelen voor ‘<span translate="no">${esc(k)}</span>’</span></label>` : ''}
     <button class="btn primary" data-act="save-tx" data-id="${t.id}">Opslaan</button>
     <button class="btn danger" data-act="del-tx" data-id="${t.id}">Verwijderen</button>`, { kind: 'tx' });
@@ -1858,7 +1953,7 @@ const val = id => $(id)?.value ?? '';
 const gridVals = g => { const v = z12(); $$(`[data-grid="${g}"]`).forEach(i => { const n = parseNum(i.value); v[+i.dataset.k] = isNaN(n) ? 0 : Math.abs(n); }); return v; };
 const ACT = {
   tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); const t = el.dataset.scroll && document.getElementById(el.dataset.scroll); if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0); },
-  'close-sheet': () => { closeSheet(); IMP = null; BIMP = null; },
+  'close-sheet': () => { closeSheet(); IMP = null; BIMP = null; BPRE = null; },
   'sheet-opname': () => sheetMove('opname'),
   'sheet-uitgave': el => sheetMove('uitgave', el.dataset.pot),
   'sheet-saldo': () => sheetSaldo(),
@@ -1886,6 +1981,10 @@ const ACT = {
   'sheet-wealth': () => sheetWealth(),
   'bank-toggle': el => { const k = el.dataset.k; BIMP.open[k] = !($(`[data-act=bank-toggle][data-k=${k}] .chev`).textContent === '▾'); sheetBankReview(); },
   'bank-do': () => bankCommit(),
+  'bank-later': () => bankLater(),
+  'bank-resume': () => bankResume(),
+  'bank-sim-all': () => { const p = BIMP.sim.pick, on = !Object.values(p).every(Boolean); for (const k in p) p[k] = on; sheetBankSim(); },
+  'bank-from-do': () => { const v = val('#bank-from'); if (v) BPRE.from = v; bankClassify(BPRE.fresh.filter(t => t.date >= BPRE.from && t.date <= BPRE.y1)); },
   'bank-ok': el => bankOk(el.dataset.id),
   'bank-undo': el => { const t = BIMP.items.find(x => x.id === el.dataset.id); if (t) t.done = false; sheetBankReview(); },
   'bank-ok-all': el => { const k = el.dataset.k; for (const t of BIMP.items) if (!t.done && t.target && t.grp === k) t.done = true; sheetBankReview(); toast('Doorgestuurd'); },
@@ -1901,6 +2000,7 @@ const ACT = {
     if (!d || !fromIso(d)) return toast('Kies een datum');
     if ((name && name !== t.desc) || d !== t.date) { if (!t.o) t.o = { desc: t.desc, date: t.date }; t.desc = name || t.desc; t.date = d; }
     t.bud = v === S.catMap[t.cat] ? undefined : v; if (t.bud === undefined) delete t.bud;
+    t.k = +val('#tx-k'); t.ky = S.settings.year;
     if ($('#tx-learn')?.checked) learnRule(t, v);
     txMove(t); save(); render(); reopenDetail(); toast('Opgeslagen');
   },
@@ -2099,6 +2199,8 @@ document.addEventListener('change', e => {
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
   if (t.dataset.btx) { bankSetTarget(t.dataset.btx, t.value); return; }
+  if (t.dataset.bk) { const x = BIMP.items.find(y => y.id === t.dataset.bk); if (x) { x.k = +t.value; x.kSet = true; } return; }
+  if (t.dataset.bfrom && BPRE) { if (t.value) BPRE.from = t.value; const b = $('#bank-from-btn'); if (b) b.textContent = T(`${bankCount()} transacties bekijken`); return; }
   if (t.dataset.simpick) { BIMP.sim.pick[t.dataset.simpick] = t.checked; const n = Object.values(BIMP.sim.pick).filter(Boolean).length, b = $('[data-act=bank-sim-do]'); if (b) b.textContent = T(n ? `Ook doorsturen (${n})` : 'Verder'); return; }
   if (t.dataset.impsign) { IMP.sign = t.value; sheetDymeMap(); return; }
   if (t.id === 'file-dyme' && t.files[0]) { onDymeFile(t.files[0]); t.value = ''; }

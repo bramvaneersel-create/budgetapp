@@ -303,5 +303,19 @@ window.I18N_EN = [
   ['Tik op ✓ om een transactie door te sturen; de app laat dan zien welke andere transacties waarschijnlijk in hetzelfde budget horen. Wat je aanpast, onthoudt de app voor de volgende keer.', 'Tap ✓ to move a transaction on; the app then shows which other transactions probably belong in the same budget. What you change, the app remembers for next time.'],
   ['Doorgestuurd naar', 'Moved to'], ['Horen deze er ook bij?', 'Do these belong there too?'], ['nu: {}', 'now: {}'],
   ['Ook doorsturen ({})', 'Move these too ({})'], ['Overslaan', 'Skip'], ['Doorgestuurd', 'Moved on'], ['{} doorgestuurd', '{} moved on'],
-  ['Kies eerst een budget', 'Choose a budget first']
+  ['Kies eerst een budget', 'Choose a budget first'],
+  // v28: periode kiezen bij bankimport
+  ['Periode', 'Period'], ['· {} al eerder ingelezen', '· {} imported before'], ['· {} buiten gekozen periode', '· {} outside chosen period'],
+  ['In dit bestand', 'In this file'], ['Buiten budgetjaar {}', 'Outside budget year {}'], ['Al ingelezen via Dyme t/m', 'Already imported via Dyme up to'],
+  ['Inlezen vanaf', 'Import from'], ['{} transacties bekijken', 'Review {} transactions'], ['Geen transacties in deze periode', 'No transactions in this period'],
+  ['Alleen transacties in budgetjaar {} tellen mee. Wat al via Dyme in de app staat, sla je over — anders tellen die uitgaven dubbel.', 'Only transactions in budget year {} count. Skip what is already in the app via Dyme — otherwise those expenses count twice.'],
+  ['Alleen transacties in budgetjaar {} tellen mee. Kies een latere datum als je oudere transacties niet nodig hebt.', 'Only transactions in budget year {} count. Choose a later date if you don’t need older transactions.'],
+  // v29: maand per transactie, werkelijke bedragen, later afmaken
+  ['Skip', 'Skip'], ['werkelijk · gepland {}', 'actual · planned {}'], ['geen betaling gevonden · gepland {}', 'no payment found · planned {}'],
+  ['Kies per transactie een budget en een maand en tik op ✓. Daarna toont de app transacties met dezelfde naam, zodat je die in één keer meestuurt.', 'Choose a budget and a month for each transaction and tap ✓. The app then shows transactions with the same name, so you can move them along in one go.'],
+  ['Alles opslaan', 'Save all'], ['Alles opslaan ({} nog niet ingedeeld)', 'Save all ({} not yet categorised)'], ['Later afmaken', 'Finish later'],
+  ['Later afmaken · {} opslaan, {} bewaren', 'Finish later · save {}, keep {}'], ['Zelfde naam ({})', 'Same name ({})'], ['Alles uit', 'Deselect all'], ['Alles aan', 'Select all'],
+  ['Elke transactie komt in de maand van haar eigen datum; dat kun je later per transactie aanpassen.', 'Each transaction goes into the month of its own date; you can change that per transaction later.'],
+  ['nu: {} · {}', 'now: {} · {}'], ['{} opgeslagen · {} bewaard voor later', '{} saved · {} kept for later'],
+  ['Nog {} transacties te bekijken', '{} transactions left to review'], ['Import afmaken', 'Finish import']
 ];
