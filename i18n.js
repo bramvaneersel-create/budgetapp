@@ -223,5 +223,23 @@ window.I18N_EN = [
   ['Kon bestand niet lezen: {}', 'Could not read file: {}'], ['Geen geldig Excel-bestand', 'Not a valid Excel file'], ['Geen werkblad gevonden', 'No worksheet found'],
   ['Geen budgetregels gevonden', 'No budget rows found'], ['Kolommen Soort en Categorie niet gevonden — gebruik het sjabloon', 'Columns Type and Category not found — use the template'],
   ['Er staan nog mutaties op deze post', 'This item still has transactions'], ['Opslaan mislukt — maak een back-up', 'Saving failed — make a backup'],
-  ['Boekjaar {}', 'Budget year {}']
+  ['Boekjaar {}', 'Budget year {}'],
+  // v22: vermogen, beleggingen, budgetdetails, budgetjaar
+  ['Vermogen', 'Wealth'], ['Totaal vermogen', 'Total wealth'], ['Beleggingen', 'Investments'], ['Beleggingen (verwacht)', 'Investments (expected)'],
+  ['Spaarrekening per salarisdag {}: {}', 'Savings on payday {}: {}'], ['Spaarrekening per salarisdag {}: {} · laatst ingevoerd {}', 'Savings on payday {}: {} · last entered {}'],
+  ['Verdeling vermogen', 'Breakdown'], ['Prognose beleggingen 31 december', 'Investments forecast 31 December'], ['Waarde begin {}', 'Value at start of {}'],
+  ['Inleg {}', 'Contributions {}'], ['Verwacht rendement ({}%)', 'Expected return ({}%)'], ['Instellingen beleggingen', 'Investment settings'],
+  ['Vul de waarde van je beleggingen begin dit jaar in via de i of Instellingen.', 'Enter the value of your investments at the start of this year via the i or Settings.'],
+  ['Vermogen 31 december (verwacht)', 'Wealth 31 December (expected)'],
+  ['Budgetjaar', 'Budget year'], ['Vorig jaar', 'Previous year'], ['Volgend jaar', 'Next year'], ['Salaris', 'Salary'],
+  ['Spaarrekening en beleggingen', 'Savings and investments'], ['Startsaldi, rente en rendement', 'Starting balances, interest and return'],
+  ['Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.', 'If payday falls on a weekend or public holiday, the working day before applies.'],
+  ['Saldo na storting januari {}', 'Balance after January deposit {}'], ['Rente (% per jaar)', 'Interest (% per year)'],
+  ['Verwacht rendement (% per jaar)', 'Expected return (% per year)'], ['Inleg via', 'Contributions via'], ['Automatisch', 'Automatic'],
+  ['Automatisch ({})', 'Automatic ({})'], ['Geen inleg', 'No contributions'],
+  ['Startsaldi en rendement worden per budgetjaar bewaard. Het rendement is een verwachting; pas het aan wanneer je wilt.', 'Starting balances and return are stored per budget year. The return is an expectation; adjust it whenever you like.'],
+  ['Uitgegeven {}', 'Spent {}'], ['van {} doel · gemiddeld {} per maand', 'of {} goal · average {} per month'], ['gemiddeld {} per maand', 'average {} per month'],
+  ['Per maand', 'Per month'], ['Nog geen maanden in {}', 'No months yet in {}'], ['Transacties ({})', 'Transactions ({})'],
+  ['Nog geen transacties — lees een Dyme-export in.', 'No transactions yet — import a Dyme export.'], ['Nog geen uitgaven geboekt.', 'No expenses recorded yet.'],
+  ['Budget aanpassen', 'Edit budget']
 ];

@@ -287,3 +287,24 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .info-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font:italic 700 13px/1 Georgia,"Times New Roman",serif;display:grid;place-items:center;flex:none}
 .sheet .grab{animation:none}
 .btn:disabled{opacity:.4}
+/* budgetjaar wisselen */
+.year-sw{display:flex;align-items:center;justify-content:space-between;padding:10px 8px}
+.ys-btn{width:44px;height:44px;border-radius:22px;font-size:28px;line-height:1;color:var(--ink);display:flex;align-items:center;justify-content:center}
+.ys-btn:active{background:var(--card2)}
+.ys-mid{display:flex;flex-direction:column;align-items:center;gap:2px}
+.ys-mid b{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* budget-details */
+.dm{display:grid;grid-template-columns:44px 1fr 84px;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.dm:first-child{border-top:0}
+.dm .mn{color:var(--muted);text-transform:capitalize}
+.dm b{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.dm-bar{position:relative;height:8px;border-radius:4px;background:var(--card2)}
+.dm-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--ok)}
+.dm-bar i.warn,.dm-bar i.over{background:var(--over)}
+.dm-bar em{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--ink);opacity:.55;border-radius:1px}
+.txr{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.txr:first-child{border-top:0}
+.txr .t{display:flex;flex-direction:column;min-width:0}
+.txr .t b{font-weight:500;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.txr .t>span{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.txr .a{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
