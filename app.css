@@ -319,3 +319,20 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 @media (prefers-color-scheme: dark){.mv .dot.b{background:#232C3B;color:#8FA9D6}}
 .danger-link{color:var(--over);font-size:13px;margin-left:8px}
 #vchart{min-height:190px}
+/* bankimport */
+.bsec{display:flex;justify-content:space-between;width:100%;padding:14px 4px 8px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.brow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:11px 0;border-top:1px solid var(--line)}
+.brow:first-child{border-top:0}
+.brow .bt{display:flex;flex-direction:column;min-width:0}
+.brow .bt b{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brow .bt>span{font-size:12.5px;color:var(--muted)}
+.brow .ba{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.brow select{grid-column:1/-1;width:100%;font:inherit;font-size:14px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--ink)}
+.how{font-weight:600}.how.onzeker{color:var(--warn)}.how.geleerd,.how.regel{color:var(--ok)}
+.chk{display:flex;gap:10px;align-items:center;font-size:14px;margin:4px 4px 14px;color:var(--ink)}
+.chk input{width:20px;height:20px;accent-color:var(--ok)}
+.paid{display:block;font-size:12px;font-weight:500;margin-top:2px;color:var(--muted)}
+.paid.ok{color:var(--ok)}
+.list-btn.sub2{padding-left:14px;font-size:14px}
+.txr .chev{color:var(--faint);margin-left:-4px}
+.dm[data-act]{cursor:pointer}

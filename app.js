@@ -241,7 +241,7 @@ function aggregate(P) {
   let first = null;
   for (const t of S.tx) {
     const k = periodOf(P, fromIso(t.date)); if (k < 0 || k > 11) continue;
-    const id = S.catMap[t.cat]; if (id === '__ignore') continue;
+    const id = txTarget(t); if (id === '__ignore' || (id && (id.startsWith('pot:') || id.startsWith('line:')))) continue;
     if (!id || !ids.has(id)) { unmapped[t.cat] = (unmapped[t.cat] || 0) + t.amt; continue; }
     sp[k][id] = (sp[k][id] || 0) + t.amt;
     if (first === null || k < first) first = k;
@@ -573,9 +573,9 @@ function reminderHtml(m) {
   const saldoDone = S.moves.some(x => x.kind === 'kas' && x.date >= t);
   if (dymeDone && saldoDone) return '';
   const when = nxt && dayDiff(m.T, nxt) === 1 ? 'Morgen salaris' : 'Salaris ontvangen';
-  return `<div class="card callout"><b>${when} — maand afsluiten</b><div class="sub" style="margin-bottom:10px">Lees je Dyme-export in en controleer het saldo van je spaarrekening.</div>
+  return `<div class="card callout"><b>${when} — maand afsluiten</b><div class="sub" style="margin-bottom:10px">Lees je bankexport in en controleer het saldo van je spaarrekening.</div>
     <div class="two-btn" style="margin:0">
-      <button class="btn${dymeDone ? ' done' : ' primary'}" data-act="pick-dyme">${dymeDone ? '✓ Dyme ingelezen' : 'Dyme-export inlezen'}</button>
+      <button class="btn${dymeDone ? ' done' : ' primary'}" data-act="pick-dyme">${dymeDone ? '✓ Export ingelezen' : 'Export inlezen'}</button>
       <button class="btn${saldoDone ? ' done' : ' primary'}" data-act="sheet-saldo">${saldoDone ? '✓ Saldo ingevoerd' : 'Saldo invoeren'}</button></div></div>`;
 }
 function actionsHtml(withImport) {
@@ -583,7 +583,7 @@ function actionsHtml(withImport) {
     <button class="act" data-act="sheet-opname"><span class="ic">${ICON.out}</span><b>Geld opnemen<small>van spaarrekening</small></b></button>
     <button class="act" data-act="sheet-uitgave"><span class="ic">${ICON.tag}</span><b>Losse uitgave<small>jaarbudget of spaarpost</small></b></button>
     ${withImport ? '' : `<button class="act wide" data-act="sheet-koop"><span class="ic">${ICON.up}</span><b>Belegging gekocht<small>bijv. losse aandelen, buiten je vaste inleg</small></b></button>`}
-    ${withImport ? `<button class="act wide" data-act="pick-dyme"><span class="ic">${ICON.imp}</span><b>Dyme-export inlezen<small>${S.lastImport ? 'Laatst: ' + dLong(fromIso(S.lastImport)) + ' · ' + S.tx.length + ' transacties' : 'Nog niets ingelezen'}</small></b></button>` : ''}
+    ${withImport ? `<button class="act wide" data-act="pick-dyme"><span class="ic">${ICON.imp}</span><b>Bank- of Dyme-export inlezen<small>${S.lastImport ? 'Laatst: ' + dLong(fromIso(S.lastImport)) + ' · ' + S.tx.length + ' transacties' : 'Nog niets ingelezen'}</small></b></button>` : ''}
   </div>`;
 }
 function header(title, eyebrow) {
@@ -737,7 +737,10 @@ function renderBudget(m) {
 
   // Maandplan
   const pm = ui.planMonth ?? Math.min(Math.max(m.cur, 0), 11), pl = m.pl;
-  const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="edit-line" data-id="${l.id}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}</span><span class="r${l.rest && pl.restM[pm] < 0 ? ' neg' : ''}">${sign}${eur(l.rest ? pl.restM[pm] : l.m[pm])}</span></button>`).join('');
+  const lAct = {}; for (const t of S.tx) { const g = txTarget(t); if (!g || !g.startsWith('line:')) continue; if (periodOf(m.P, fromIso(t.date)) !== pm) continue; const l = S.lines.find(x => 'line:' + x.id === g); if (l) lAct[l.id] = (lAct[l.id] || 0) + (l.type === 'inkomen' ? -t.amt : t.amt); }
+  const paid = l => { if (lAct[l.id] == null) return ''; const plan = l.rest ? pl.restM[pm] : +l.m[pm] || 0, ok = Math.abs(lAct[l.id] - plan) <= Math.max(1, plan * 0.01);
+    return `<small class="paid ${ok ? 'ok' : 'diff'}">${l.type === 'inkomen' ? 'ontvangen' : 'betaald'} ${eur(lAct[l.id])}${ok ? ' ✓' : ''}</small>`; };
+  const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="line-detail" data-kind="line" data-id="${l.id}" data-k="${pm}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}${paid(l)}</span><span class="r${l.rest && pl.restM[pm] < 0 ? ' neg' : ''}">${sign}${eur(l.rest ? pl.restM[pm] : l.m[pm])}</span></button>`).join('');
   const grp = (t, label) => S.lines.some(l => l.type === t) ? `<div class="list-btn plain grp"><span>${label}</span><span class="r">−${eur(pl[t][pm])}</span></div>` + rows(t, '') : '';
   const ex = S.extraInc.filter(e => e.k === pm);
   const uitTot = pl.vast[pm] + pl.overboeking[pm] + pl.sparen[pm];
@@ -753,9 +756,10 @@ function renderBudget(m) {
     <div class="section-head"><span>Vrije ruimte ${MONF[pm]}</span><b>${eur(pl.vrij[pm])}</b></div>
     <div class="card tight">
     <div class="list-btn plain sub-row" style="border-top:0"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
+    ${S.dyme.map(d => { const sp = m.sp[pm]?.[d.id] || 0, dl = +d.doel[pm] || 0; return `<button class="list-btn sub-row sub2" data-act="line-detail" data-kind="dyme" data-id="${d.id}" data-k="${pm}"><span>${esc(d.name)}</span><span class="r ${sp > (+d.grens[pm] || dl) + 0.5 ? 'neg' : ''}">${eur(sp)} <small class="sub">/ ${eur(dl)}</small></span></button>`; }).join('')}
     ${pl.lopDoel ? `<div class="list-btn plain sub-row"><span>Jaarbudgetten lopende rekening (÷12)</span><span class="r">${eur(pl.lopDoel / 12)}</span></div>` : ''}
     <div class="list-btn plain grp"><span>Blijft op lopende rekening</span><span class="r ${onder >= 0 ? 'pos' : 'neg'}">${eurS(onder)}</span></div></div>
-    <p class="hint">Tik op een post om de bedragen per maand aan te passen.</p>
+    <p class="hint">Tik op een post voor de transacties en om de bedragen aan te passen.</p>
     <button class="btn" data-act="edit-line" data-id="">Post toevoegen</button>`;
   return h;
 }
@@ -825,8 +829,8 @@ function renderSpaar(m) {
     const ass = x.kind === 'koop' ? S.assets.find(a => a.id === x.asset) : null;
     const title = x.kind === 'koop' ? `Gekocht: ${ass?.name || ''}` : x.kind === 'opname' ? 'Opname naar lopende rekening' : x.kind === 'kas' ? (x.saldo != null ? 'Saldo ingevoerd' : 'Kasverschil') : (p?.name || 'Uitgave');
     const sub = x.kind === 'koop' ? (x.src === 'lopend' ? 'van lopende rekening' : 'van spaarrekening') : x.kind === 'kas' ? (x.saldo != null ? eur2(x.saldo) + ' · kasverschil' : 'kasverschil') : x.kind === 'uitgave' && p?.acct === 'lopend' ? 'van lopende rekening' : '';
-    const amt = x.kind === 'kas' ? (x.amt >= 0 ? '+' : '−') + eur2(Math.abs(x.amt)) : '−' + eur2(x.amt);
-    return `<div class="mv" data-act="del-move" data-id="${x.id}"><span class="dot ${x.kind === 'opname' ? 'o' : x.kind === 'kas' ? 'k' : x.kind === 'koop' ? 'b' : 'u'}">${x.kind === 'opname' ? '↑' : x.kind === 'kas' ? '=' : x.kind === 'koop' ? '↗' : esc((p?.name || '?')[0])}</span>
+    const amt = x.kind === 'kas' ? (x.amt >= 0 ? '+' : '−') + eur2(Math.abs(x.amt)) : x.amt < 0 ? '+' + eur2(-x.amt) : '−' + eur2(x.amt);
+    return `<div class="mv" ${x.txId ? `data-act="edit-tx" data-id="${x.txId}"` : x.kind === 'uitgave' ? `data-act="edit-move" data-id="${x.id}"` : `data-act="del-move" data-id="${x.id}"`}><span class="dot ${x.kind === 'opname' ? 'o' : x.kind === 'kas' ? 'k' : x.kind === 'koop' ? 'b' : 'u'}">${x.kind === 'opname' ? '↑' : x.kind === 'kas' ? '=' : x.kind === 'koop' ? '↗' : esc((p?.name || '?')[0])}</span>
       <span class="t"><b>${esc(title)}</b><span>${dLong(fromIso(x.date))}${sub ? ' · ' + sub : ''}${x.note ? ' · ' + esc(x.note) : ''}</span></span><span class="a">${amt}</span></div>`;
   }).join('') : `<div class="empty">Nog geen mutaties</div>`) + `</div>`;
   return h;
@@ -852,8 +856,9 @@ function renderInstel(m) {
     <button class="list-btn" data-act="budget-export"><span>Huidig budget exporteren</span><span class="r"></span></button>
     <button class="list-btn" data-act="rebase"><span>Prognose begin jaar opnieuw vastzetten</span><span class="r"></span></button>
     <button class="list-btn" data-act="new-year"><span>Nieuw boekjaar starten</span><span class="r">${st.year + 1}</span></button></div>`;
-  h += `<h2>Dyme</h2><div class="card tight">
-    <button class="list-btn" data-act="pick-dyme"><span>Export inlezen</span><span class="r">${S.tx.length}</span></button>
+  h += `<h2>Transacties</h2><div class="card tight">
+    <button class="list-btn" data-act="pick-dyme"><span>Bank- of Dyme-export inlezen</span><span class="r">${S.tx.length}</span></button>
+    <button class="list-btn" data-act="sheet-rules"><span>Regels voor indelen</span><span class="r">${Object.keys(S.rules || {}).length}</span></button>
     <button class="list-btn" data-act="sheet-catmap"><span>Categorieën koppelen</span><span class="r">${Object.keys(dymeCats()).length}</span></button>
     <button class="list-btn danger" data-act="clear-tx"><span>Transacties wissen</span><span class="r"></span></button></div>`;
   h += `<h2>Back-up</h2><div class="card tight">
@@ -910,7 +915,7 @@ function openSheet(title, body, opts = {}) {
   trDom($('#sheet-root'));
   const f = $('#sheet-root [autofocus]'); if (f) setTimeout(() => f.focus(), 250);
 }
-function closeSheet() { $('#sheet-root').innerHTML = ''; }
+function closeSheet() { $('#sheet-root').innerHTML = ''; ui.detail = null; }
 
 let movePot = null;
 function potHint(p) { return p ? (p.acct === 'lopend' ? 'Betaald van je lopende rekening' : 'Gaat van je spaarrekening af') + (p.vrij ? ' · telt mee in je vrije ruimte' : '') : ''; }
@@ -958,37 +963,55 @@ function sheetSaldi() {
 }
 
 /* Details van een jaarbudget: uitgaven per maand en de losse transacties (zoals in de bankexport). */
-function sheetBudgetDetail(kind, id) {
-  const m = model(), P = m.P, y = m.y, isD = kind === 'dyme';
-  const b = isD ? S.dyme.find(d => d.id === id) : S.pots.find(p => p.id === id); if (!b) return;
-  const doelK = k => isD ? (+b.doel[k] || 0) : (+b.doel || 0) / 12;
-  const per = z12(), list = [];
-  if (isD) for (const t of S.tx) {
-    if (S.catMap[t.cat] !== id) continue;
-    const k = periodOf(P, fromIso(t.date)); if (k < 0 || k > 11) continue;
-    per[k] += t.amt; list.push({ k, date: t.date, name: t.desc || t.cat, sub: t.cat, amt: t.amt });
-  } else for (const mv of S.moves) {
+/* Details van een post: per maand en de losse transacties. kind = dyme | pot | line; k = periode (of null = heel jaar). */
+function detailItems(kind, id, b, P, y) {
+  const list = [];
+  if (kind === 'pot') for (const mv of S.moves) {
     if (mv.kind !== 'uitgave' || mv.pot !== id) continue;
     const dt = fromIso(mv.date); if (dt.getFullYear() !== y) continue;
-    const k = Math.max(0, Math.min(11, periodOf(P, dt)));
-    per[k] += mv.amt; list.push({ k, date: mv.date, name: mv.note || b.name, sub: '', amt: mv.amt, mid: mv.id });
+    list.push({ k: Math.max(0, Math.min(11, periodOf(P, dt))), date: mv.date, name: mv.note || b.name, sub: '', amt: mv.amt, mid: mv.txId ? null : mv.id, tid: mv.txId });
+  } else {
+    const tg = kind === 'line' ? 'line:' + id : id, inc = kind === 'line' && b.type === 'inkomen';
+    for (const t of S.tx) {
+      if (txTarget(t) !== tg) continue;
+      const k = periodOf(P, fromIso(t.date)); if (k < 0 || k > 11) continue;
+      list.push({ k, date: t.date, name: t.desc || t.cat, sub: t.src === 'bank' ? '' : t.cat, amt: inc ? -t.amt : t.amt, tid: t.id });
+    }
   }
-  const tot = sum(per), jaarDoel = isD ? sum(b.doel) : +b.doel || 0;
-  const last = Math.max(Math.min(m.cur, 11), ...per.map((v, k) => v ? k : -1));
-  const used = per.slice(0, last + 1).filter((_, k) => k <= Math.min(m.cur, 11)).length || 1;
-  const mx = Math.max(1, ...per, ...P.map((_, k) => doelK(k)));
-  let h = `<div class="card"><div class="lbl">Uitgegeven ${y}</div><div class="big" style="margin:6px 0 4px">${eur(tot)}</div>
-    <div class="sub">${jaarDoel ? `van ${eur(jaarDoel)} doel · ` : ''}gemiddeld ${eur(tot / used)} per maand</div></div>`;
-  h += `<h2>Per maand</h2><div class="card tight">` + (last < 0 ? `<div class="empty">Nog geen maanden in ${y}</div>` :
-    per.slice(0, last + 1).map((v, k) => { const d = doelK(k), st = d ? status(v, d, d) : 'ok';
-      return `<div class="dm"><span class="mn">${MON[k]}</span><span class="dm-bar"><i class="${st}" style="width:${(v / mx * 100).toFixed(1)}%"></i>${d ? `<em style="left:${(d / mx * 100).toFixed(1)}%"></em>` : ''}</span><b>${eur(v)}</b></div>`; }).reverse().join('')) + `</div>`;
-  list.sort((a, c) => c.date.localeCompare(a.date));
+  return list;
+}
+function sheetBudgetDetail(kind, id, k = null) {
+  const m = model(), P = m.P, y = m.y;
+  const b = kind === 'dyme' ? S.dyme.find(d => d.id === id) : kind === 'line' ? S.lines.find(l => l.id === id) : S.pots.find(p => p.id === id); if (!b) return;
+  ui.detail = { kind, id, k };
+  const doelK = q => kind === 'dyme' ? (+b.doel[q] || 0) : kind === 'line' ? (b.rest ? m.pl.restM[q] : +b.m[q] || 0) : (+b.doel || 0) / 12;
+  const all = detailItems(kind, id, b, P, y), per = z12(); for (const t of all) per[t.k] += t.amt;
+  const list = (k == null ? all : all.filter(t => t.k === k)).sort((a, c) => c.date.localeCompare(a.date));
+  const inc = kind === 'line' && b.type === 'inkomen', verb = inc ? 'Ontvangen' : kind === 'line' ? 'Betaald' : 'Uitgegeven';
+  const kk = k == null ? Math.min(Math.max(m.cur, 0), 11) : k;
+  let h = `<div class="seg seg-sm"><button data-act="detail-scope" data-k="${kk}" class="${k != null ? 'on' : ''}">${MONF[kk]}</button><button data-act="detail-scope" data-k="" class="${k == null ? 'on' : ''}">Heel ${y}</button></div>`;
+  if (k == null) {
+    const tot = sum(per), jaarDoel = sum(P.map((_, q) => doelK(q)));
+    const last = Math.max(Math.min(m.cur, 11), ...per.map((v, q) => v ? q : -1));
+    const used = Math.max(1, Math.min(last, Math.min(m.cur, 11)) + 1);
+    const mx = Math.max(1, ...per, ...P.map((_, q) => doelK(q)));
+    h += `<div class="card"><div class="lbl">${verb} ${y}</div><div class="big" style="margin:6px 0 4px">${eur(tot)}</div>
+      <div class="sub">${jaarDoel ? `van ${eur(jaarDoel)} ${kind === 'line' ? 'gepland' : 'doel'} · ` : ''}gemiddeld ${eur(tot / used)} per maand</div></div>`;
+    h += `<h2>Per maand</h2><div class="card tight">` + (last < 0 ? `<div class="empty">Nog geen maanden in ${y}</div>` :
+      per.slice(0, last + 1).map((v, q) => { const d = doelK(q), st = d && !inc ? status(v, d, d) : 'ok';
+        return `<div class="dm" data-act="detail-scope" data-k="${q}"><span class="mn">${MON[q]}</span><span class="dm-bar"><i class="${st}" style="width:${(Math.max(0, v) / mx * 100).toFixed(1)}%"></i>${d ? `<em style="left:${(d / mx * 100).toFixed(1)}%"></em>` : ''}</span><b>${eur(v)}</b></div>`; }).reverse().join('')) + `</div>`;
+  } else {
+    const v = per[k], d = doelK(k), p = P[k];
+    h += `<div class="card"><div class="lbl">${verb} · ${dShort(p.start)} – ${dShort(p.end)}</div><div class="big" style="margin:6px 0 4px">${eur(v)}</div>
+      ${d ? `${bar(Math.max(0, v), d, kind === 'dyme' ? +b.grens[k] || d : d)}<div class="sub" style="margin-top:6px">${kind === 'line' ? 'gepland' : 'doel'} ${eur(d)} · ${inc ? (v >= d - 0.5 ? 'ontvangen' : `nog ${eur(d - v)} te ontvangen`) : (d - v >= 0 ? `nog ${eur(d - v)}` : `${eur(v - d)} te veel`)}</div>` : ''}</div>`;
+  }
   h += `<h2>Transacties (${list.length})</h2><div class="card tight">` + (list.length ? list.map(t =>
-    `<div class="txr"${t.mid ? ` data-act="del-move" data-id="${t.mid}"` : ''}><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a">${eur2(t.amt)}</span></div>`).join('')
-    : `<div class="empty">${isD ? 'Nog geen transacties — lees een Dyme-export in.' : 'Nog geen uitgaven geboekt.'}</div>`) + `</div>`;
-  h += `<button class="btn" data-act="${isD ? 'edit-dyme' : 'edit-pot'}" data-id="${id}">Budget aanpassen</button>`;
+    `<div class="txr"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`).join('')
+    : `<div class="empty">${kind === 'pot' ? 'Nog geen uitgaven geboekt.' : 'Nog geen transacties — lees een bank- of Dyme-export in.'}</div>`) + `</div>`;
+  h += `<button class="btn" data-act="${kind === 'dyme' ? 'edit-dyme' : kind === 'line' ? 'edit-line' : 'edit-pot'}" data-id="${id}">${kind === 'line' ? 'Post aanpassen' : 'Budget aanpassen'}</button>`;
   openSheet(b.name, h, { kind: 'detail' });
 }
+function reopenDetail() { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, d.k); else closeSheet(); }
 
 function sheetAccounts() {
   const st = S.settings, y = st.year;
@@ -1272,6 +1295,7 @@ async function onDymeFile(file) {
     const rows = await readTable(file, true);
     if (rows.length < 2) return toast('Bestand is leeg');
     const hdr = rows[0].map(x => String(x));
+    if (isBankHdr(hdr)) return onBankRows(rows);
     IMP = { rows, hdr, sign: 'neg', map: {
       date: Math.max(0, guessCol(hdr, /datum|date/)), amt: guessCol(hdr, /^bedrag|^amount|waarde|value/), cat: guessCol(hdr, /^categor|^category/) >= 0 ? guessCol(hdr, /^categor|^category/) : guessCol(hdr, /categor/),
       sup: guessCol(hdr, /super|hoofd/),
@@ -1280,6 +1304,255 @@ async function onDymeFile(file) {
     sheetDymeMap();
   } catch (err) { toast('Kon bestand niet lezen: ' + err.message); }
 }
+
+/* ───────────── bankexport (ING) met slimme indeling ─────────────
+   Alles gebeurt op het toestel. Volgorde van indelen:
+   1. jouw regels (per tegenrekening of winkelnaam, geleerd van je eigen keuzes)
+   2. eigen rekeningen en sparen/beleggen → niet meetellen
+   3. leren van eerdere transacties (naïeve Bayes op de woorden in de naam)
+   4. herkende winkels en diensten (woordenlijst, Dyme-categorieën)
+   5. soort betaling (geldautomaat, betaalverzoek, incasso)
+   Wat dan nog onduidelijk is, vraagt de app aan jou — en dat onthoudt hij voor de volgende keer. */
+const KW = [
+  ['Uitgesloten overboekingen', /oranje spaar|spaarrekening|^sparen|eigen rekening/],
+  ['Sparen', /trade republic|bunq.*spaar|raisin|lightyear sav/],
+  ['Beleggen', /\basn\b.*beleg|beleggen|degiro|meesman|brand new day|saxo|bux\b|peaks|lightyear|etoro|binck/],
+  ['Betaalverzoek', /tikkie|betaalverzoek|payment request/],
+  ['Restaurants', /restaurant|brasserie|eetcafe|eetcaf|bistro|pizzeria|pizza|sushi|ramen|wok\b|tapas|thuisbezorgd|uber ?eats|deliveroo|takeaway|dominos|domino's|new york pizza|burger|mcdonald|kfc|five guys|febo|kebab|shoarma|steakhouse|grill|trattoria|osteria|poke|dim sum/],
+  ['Lunch & koffie', /koffie|coffee|espresso|starbucks|bagels|lunch|bakkerij|bakery|cafe |café|anne&max|anne & max|coffeecompany|douwe egberts cafe|broodjes|kiosk|ah to go|smullers|la place|julia's|bagel/],
+  ['Bars & clubs', /\bbar\b|bar |kroeg|proeflokaal|biercafe|club|lounge|cocktail|tap room|taproom|brouwerij|pub\b/],
+  ['Alcohol & tabak', /gall ?& ?gall|slijterij|mitra|drankenhandel|tabak|primera|sigaren|vape/],
+  ['Boodschappen', /albert heijn|\bah\b|jumbo|lidl|aldi|plus supermarkt|\bplus\b|dirk|dekamarkt|\bcoop\b|spar\b|vomar|hoogvliet|picnic|crisp|ekoplaza|marqt|nettorama|poiesz|boni|jan linders|flink|getir|zapp|amazing oriental|toko|slager|groenteboer|kaas|markt/],
+  ['Kleding & accessoires', /zara|h&m|\bhm\b|hennes|uniqlo|\bcos\b|weekday|primark|zalando|about you|c&a|we fashion|only |jack ?& ?jones|nike|adidas|foot ?locker|scotch|suitsupply|arket|mango|massimo dutti|pull&bear|bershka|vans|asos|snipes|omoda|van haren|schoenen|sacha|the sting|costes|g-star|levi|tommy|guess|wehkamp|vinted|sissy-boy|essentiel|shoes/],
+  ['Sport', /basic.?fit|sportcity|trainmore|anytime fitness|fit for free|decathlon|padel|tennis|golf|squash|sportschool|gym|yoga|crossfit|zwembad|klimhal|boulder|strava|runner|hardloop|intersport|sport ?2000|bever|anwb winkel/],
+  ['Evenementen & uitjes', /pathe|pathé|vue |kinepolis|filmhuis|bioscoop|museum|ticketmaster|eventim|paylogic|ticketswap|tickets|theater|concert|festival|efteling|dierentuin|zoo|escape|bowling|kart|attractie|madurodam|rijksmuseum/],
+  ['Hobby\'s', /steam|playstation|nintendo|xbox|game|intertoys|hobby|action\b.*hobby|boekhandel|bruna|ako |waterstones|lego|fotograf|muziek|guitar|gitaar|bol.com.*boek/],
+  ['Elektronica', /coolblue|mediamarkt|media markt|apple store|apple\.com(?!\/bill)|bcc|alternate|megekko|samsung|dyson/],
+  ['Cadeau\'s', /cadeau|kado|gift|bloem|fleurop|bloemist|rituals|hallmark|douglas|ici paris/],
+  ['Winkelen - overig', /hema|action|kruidvat|etos|bol\.com|bol com|amazon|ikea|blokker|xenos|flying tiger|søstrene|sostrene|casa|wibra|zeeman|big bazar|primera|gamma|praxis|karwei|hornbach|welkoop|aliexpress|temu|shein/],
+  ['Uiterlijk', /kapper|kapsalon|barber|hairdress|haar|nagel|nail|beauty|schoonheid/],
+  ['Huisdieren', /dierenarts|dierenkliniek|dierenspeciaal|pets ?place|petsplace|zooplus|jumper|discus|tom&co|dierenwinkel|hondenschool|hondenuitlaat|pet\b/],
+  ['Medicijnen', /apotheek|pharmacy|benu/],
+  ['Gezondheidszorg', /tandarts|huisarts|fysio|ziekenhuis|kliniek|mondzorg|orthodont|psycholoog|umc|medisch/],
+  ['Oog zorg', /hans anders|pearle|specsavers|eyewish|opticien|lenzen/],
+  ['Openbaar vervoer', /\bns\b|ns groep|ns reizigers|ov-chip|ovpay|gvb|\bhtm\b|\bret\b|arriva|connexxion|qbuzz|keolis|ebs|uber|bolt\.eu|\bbolt\b|swapfiets|ov-fiets|greenwheels|check\.|felyx|go sharing/],
+  ['Auto', /shell|\bbp\b|esso|tango|tinq|total|texaco|gulf|argos|q-park|parkeren|parking|yellowbrick|easypark|parkmobile|fastned|allego|ionity|vattenfall incharge|shell recharge|tesla|kia|anwb|apk|bandenwissel|carglass|wasstraat|car wash/],
+  ['Vakantie & accomodatie', /booking\.com|airbnb|hotel|hostel|transavia|klm|easyjet|ryanair|vueling|lufthansa|corendon|tui|sunweb|expedia|camping|vakantie|schiphol|eurostar|flixbus/],
+  ['Streaming diensten', /netflix|spotify|disney|videoland|hbo|max\.com|youtube|apple\.com\/bill|itunes|prime video|amazon prime|viaplay|dazn|audible|storytel/],
+  ['Mobiel', /odido|t-mobile|vodafone|\bkpn\b|simyo|lebara|youfone|\bben\b|hollandsnieuwe|tele2|lyca/],
+  ['Energie', /eneco|vattenfall|essent|greenchoice|budget ?energie|vandebron|energiedirect|oxxio|dunea|evides|vitens|pwn|waternet|brabant water|ziggo|delta/],
+  ['Verzekering', /zilveren kruis|\bcz\b|vgz|menzis|ohra|zorgverzekering|ditzo|centraal beheer|interpolis|unive|univé|\bnn\b|nationale.?nederlanden|aegon|allianz|asr|fbto|inshared|ing verzekering|verzekering/],
+  ['Hypotheek & leningen', /hypotheek|duo\b|dienst uitvoering onderwijs|huur|woonstad|vesteda|staedion|haag wonen|vidomes|ymere/],
+  ['Vaste lasten - overig', /gemeente|belastingdienst|cjib|waterschap|hoogheemraadschap|vve|contributie|lidmaatschap|abonnement/],
+  ['Bank', /kosten oranjepakket|oranjepakket|ing bank.*kosten|rente|bankkosten|creditcard/],
+  ['Donaties', /stichting|unicef|kwf|rode kruis|greenpeace|wnf|artsen zonder|amnesty|kika|giro555/],
+  ['Boeken, kranten & tijdschriften', /nrc|volkskrant|\bad\b|parool|telegraaf|trouw|fd\.nl|financieele dagblad|blendle|readly|tijdschrift/],
+  ['Inrichting & meubilair', /leen bakker|kwantum|jysk|loods ?5|vtwonen|maisons du monde|beter bed|auping|swiss sense|home24|westwing|fonq|eijerkamp/]
+];
+const STOP = new Set(['bv', 'b.v', 'nv', 'nl', 'nld', 'the', 'van', 'de', 'het', 'en', 'den', 'haag', 'amsterdam', 'rotterdam', 'utrecht', 'via', 'ccv', 'sumup', 'zettle', 'pay', 'nlo', 'ing', 'apple', 'google', 'mollie', 'adyen', 'stripe', 'buckaroo', 'payments', 'payment', 'pas', 'term', 'ideal']);
+const normTxt = s => String(s || '').toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ').trim();
+function bankKey(name) {
+  const w = normTxt(name).replace(/^(sumup|zettle_?|ccv|sq|pp|paypal|mollie)\s*\*?\s*/, '').replace(/[*_]/g, ' ').replace(/[0-9]+/g, ' ')
+    .replace(/[^a-zà-ÿ&'. -]/g, ' ').split(' ').filter(x => x.length > 1 && !STOP.has(x.replace(/\.$/, '')));
+  return w.slice(0, 3).join(' ');
+}
+const tokens = s => [...new Set(normTxt(s).replace(/[0-9]+/g, ' ').split(/[^a-zà-ÿ&']+/).filter(x => x.length > 2 && !STOP.has(x)))];
+const oName = t => t.o ? t.o.desc : t.desc;
+const txTarget = t => t.bud !== undefined ? t.bud : S.catMap[t.cat];
+function ruleFor(t) {
+  const R = S.rules || {};
+  if (t.iban && R['iban:' + t.iban]) return R['iban:' + t.iban];
+  const k = bankKey(oName(t)); return k && R['n:' + k] ? R['n:' + k] : null;
+}
+function validTarget(v) {
+  if (v === '__ignore') return true;
+  if (v && v.startsWith('pot:')) return S.pots.some(p => 'pot:' + p.id === v);
+  if (v && v.startsWith('line:')) return S.lines.some(l => 'line:' + l.id === v);
+  return S.dyme.some(d => d.id === v);
+}
+function trainNB() {
+  const nb = { cls: {}, tok: {}, V: new Set() };
+  for (const t of S.tx) {
+    const c = txTarget(t); if (!c || !validTarget(c)) continue;
+    const ts = tokens(t.desc + ' ' + (t.memo || '')); if (!ts.length) continue;
+    nb.cls[c] = (nb.cls[c] || 0) + 1; nb.tok[c] = nb.tok[c] || { _n: 0 };
+    for (const w of ts) { nb.tok[c][w] = (nb.tok[c][w] || 0) + 1; nb.tok[c]._n++; nb.V.add(w); }
+  }
+  return nb;
+}
+function nbGuess(nb, text) {
+  const ts = tokens(text).filter(w => nb.V.has(w)); if (!ts.length) return null;
+  const N = sum(Object.values(nb.cls)), V = nb.V.size, sc = [];
+  for (const [c, n] of Object.entries(nb.cls)) {
+    let l = Math.log(n / N); for (const w of ts) l += Math.log(((nb.tok[c][w] || 0) + 0.5) / (nb.tok[c]._n + 0.5 * V));
+    sc.push([c, l, ts.filter(w => nb.tok[c][w]).length]);
+  }
+  sc.sort((a, b) => b[1] - a[1]);
+  const mx = sc[0][1], z = sum(sc.map(x => Math.exp(x[1] - mx))), p = 1 / z;
+  return p >= 0.8 && sc[0][2] >= 1 && nb.cls[sc[0][0]] >= 2 ? { c: sc[0][0], p } : null;
+}
+function potByName(re) { const p = S.pots.find(x => !x.sys && re.test(x.name.toLowerCase())); return p ? 'pot:' + p.id : null; }
+// Eén transactie indelen → { cat, target, how, why }
+function classify(t, ctx) {
+  const name = normTxt(t.desc), memo = normTxt(t.memo), all = name + ' ' + memo, credit = t.amt < 0;
+  const r = ruleFor(t); if (r && validTarget(r)) return { cat: t.cat, target: r, how: 'regel', why: 'jouw regel' };
+  // terugkerend: zelfde tegenpartij, (bijna) zelfde bedrag, ongeveer een maand eerder
+  const key = bankKey(t.desc), td = fromIso(t.date);
+  const prev = ctx.hist.filter(x => (t.iban ? x.iban === t.iban : key && bankKey(oName(x)) === key) && Math.sign(x.amt) === Math.sign(t.amt) &&
+    Math.abs(x.amt - t.amt) <= Math.max(1, Math.abs(t.amt) * 0.1) && dayDiff(fromIso(x.date), td) >= 20 && dayDiff(fromIso(x.date), td) <= 70)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (prev && validTarget(txTarget(prev))) return { cat: prev.cat, target: txTarget(prev), how: 'terugkerend', why: `zoals ${dShort(fromIso(prev.date))}` };
+  // bedrag past precies bij een post uit je maandplan (vaste last, overboeking, sparen of inkomen)
+  if (t.code !== 'BA' || credit) {
+    const k = periodOf(ctx.P, td), kk = Math.max(0, Math.min(11, k < 0 ? (td.getFullYear() < ctx.y ? 0 : 11) : k));
+    const types = credit ? ['inkomen'] : ['vast', 'overboeking', 'sparen'];
+    const ln = S.lines.find(l => types.includes(l.type) && !l.rest && (+l.m[kk] || 0) > 0 && Math.abs((+l.m[kk]) - Math.abs(t.amt)) <= Math.max(0.5, (+l.m[kk]) * 0.005));
+    if (ln) return { cat: credit ? 'Salaris' : 'Vaste lasten - overig', target: 'line:' + ln.id, how: 'herkend', why: `bedrag ${ln.name}` };
+  }
+  if (t.iban && ctx.own.has(t.iban)) return { cat: 'Uitgesloten overboekingen', how: 'herkend', why: 'eigen rekening' };
+  for (const p of S.pots) if (!p.sys && p.name.length >= 4 && name.includes(p.name.toLowerCase())) return { cat: t.cat, target: 'pot:' + p.id, how: 'herkend', why: 'naam jaarbudget' };
+  if (credit) {
+    if (/salaris|loon|salary|wage/.test(all)) return { cat: 'Salaris', how: 'herkend', why: 'inkomen' };
+    if (/tikkie|betaalverzoek/.test(all)) return { cat: 'Terugbetaling', how: 'herkend', why: 'terugbetaling' };
+  }
+  const g = nbGuess(ctx.nb, t.desc + ' ' + (t.memo || '')); if (g) return { cat: t.cat, target: g.c, how: 'geleerd', why: 'eerdere keuzes' };
+  for (const [c, re] of KW) if (re.test(name) || (t.code !== 'BA' && re.test(memo.slice(0, 160)))) {
+    if (c === 'Uiterlijk') { const p = potByName(/kap|haar|hair|barb/); if (p) return { cat: c, target: p, how: 'herkend', why: 'kapper' }; }
+    if (c === 'Huisdieren') { const p = potByName(/huisdier|hond|kat\b|dier|pet/); if (p) return { cat: c, target: p, how: 'herkend', why: 'huisdier' }; }
+    return { cat: c, how: 'herkend', why: c };
+  }
+  if (credit) return { cat: 'Overig inkomen', how: 'herkend', why: 'bijschrijving' };
+  if (/geldautomaat|cash machine|opname/.test(t.kindTxt)) return { cat: 'Geld opnemen', how: 'herkend', why: 'geldautomaat' };
+  if (/incasso|direct debit/.test(t.kindTxt)) return { cat: 'Vaste lasten - overig', how: 'herkend', why: 'incasso' };
+  if (/online bankieren|overschrijving|transfer|online banking/.test(t.kindTxt) && !/ideal/.test(t.kindTxt)) return { cat: 'Overige overboekingen', how: 'onzeker', why: 'overboeking' };
+  return { cat: 'Ongecategoriseerd', how: 'onzeker', why: 'onbekend' };
+}
+const isBankHdr = hdr => { const h = hdr.map(x => normTxt(x)); return (h.includes('af bij') || h.includes('debit/credit')) && h.some(x => /naam \/ omschrijving|name \/ description/.test(x)); };
+let BIMP = null;
+function onBankRows(rows) {
+  const h = rows[0].map(x => normTxt(x)), col = re => h.findIndex(x => re.test(x));
+  const C = { date: col(/^datum|^date/), name: col(/naam|name/), acc: col(/^rekening$|^account$/), iban: col(/tegenrekening|counterparty/), code: col(/^code$/),
+    ab: col(/af bij|debit\/credit/), amt: col(/bedrag|amount/), kind: col(/mutatiesoort|transaction type/), memo: col(/mededelingen|notifications/) };
+  const own = new Set(S.ownIbans || []), items = [];
+  for (const r of rows.slice(1)) if (C.acc >= 0 && r[C.acc]) own.add(String(r[C.acc]).replace(/\s/g, '').toUpperCase());
+  for (const r of rows.slice(1)) {
+    const dt = parseDate(r[C.date]), a = parseNum(r[C.amt]); if (!dt || isNaN(a)) continue;
+    const af = /^(af|debit)/i.test(String(r[C.ab] || 'af').trim());
+    let memo = String(r[C.memo] ?? '').replace(/\s+/g, ' ').trim();
+    const om = memo.match(/omschrijving:\s*(.*?)(?:\s+(?:iban|kenmerk|valutadatum|machtiging|incassant|naam):|$)/i) || memo.match(/description:\s*(.*?)(?:\s+(?:iban|reference|value date):|$)/i);
+    const t = { date: iso(dt), amt: r2(af ? Math.abs(a) : -Math.abs(a)), desc: String(r[C.name] ?? '').trim().slice(0, 100),
+      memo: (om ? om[1] : memo).slice(0, 140), iban: String(r[C.iban] ?? '').replace(/\s/g, '').toUpperCase(), code: String(r[C.code] ?? '').trim().toUpperCase(),
+      kindTxt: normTxt(r[C.kind]), src: 'bank' };
+    items.push(t);
+  }
+  if (!items.length) return toast('Geen transacties gevonden in dit bestand');
+  // dubbele overslaan (ook als je overlappende periodes inleest)
+  const key = t => `${t.o ? t.o.date : t.date}|${t.amt}|${t.o ? t.o.desc : t.desc}|${t.memo}`, have = {}, seen = {};
+  for (const t of S.tx) if (t.src === 'bank') { const k = key(t); have[k] = (have[k] || 0) + 1; }
+  for (const k of S.txGone || []) have[k] = (have[k] || 0) + 1;  // bewust verwijderde transacties niet opnieuw inlezen
+  const nb = trainNB(), fresh = [], P = periods(S.settings.year); let dup = 0;
+  for (const t of items) { const k = key(t); seen[k] = (seen[k] || 0) + 1; if (seen[k] <= (have[k] || 0)) { dup++; continue; } fresh.push(t); }
+  if (!fresh.length) return toast('Geen nieuwe transacties — alles was al ingelezen');
+  const hist = S.tx.filter(x => x.src === 'bank'), ctx = { own, nb, hist, P, y: S.settings.year };
+  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); }
+  BIMP = { items: fresh.sort((a, b) => b.date.localeCompare(a.date)), dup, own, open: {} };
+  sheetBankReview();
+}
+function targetOptions(sel, allowEmpty) {
+  const o = (v, txt) => `<option value="${v}"${sel === v ? ' selected' : ''}>${esc(txt)}</option>`;
+  const pots = S.pots.filter(p => !p.sys);
+  return (allowEmpty ? o('', '— Kies budget —') : '') + `<optgroup label="${T('Maandbudgetten')}">${S.dyme.map(d => o(d.id, d.name)).join('')}</optgroup>` +
+    (pots.length ? `<optgroup label="${T('Jaarbudgetten')}">${pots.map(p => o('pot:' + p.id, p.name)).join('')}</optgroup>` : '') +
+    [['vast', 'Vaste lasten'], ['overboeking', 'Overboekingen'], ['sparen', 'Naar spaarrekening'], ['inkomen', 'Inkomsten']].map(([ty, lb]) => {
+      const ls = S.lines.filter(l => l.type === ty); return ls.length ? `<optgroup label="${T(lb)}">${ls.map(l => o('line:' + l.id, l.name)).join('')}</optgroup>` : ''; }).join('') +
+    o('__ignore', 'Niet meetellen');
+}
+function targetName(v) {
+  if (v === '__ignore') return 'Niet meetellen';
+  if (v && v.startsWith('pot:')) return S.pots.find(p => 'pot:' + p.id === v)?.name || '?';
+  if (v && v.startsWith('line:')) return S.lines.find(l => 'line:' + l.id === v)?.name || '?';
+  return S.dyme.find(d => d.id === v)?.name || '—';
+}
+function sheetBankReview() {
+  const it = BIMP.items, grp = { check: [], auto: [], ign: [] };
+  for (const t of it) (t.how === 'onzeker' || !t.target ? grp.check : t.target === '__ignore' ? grp.ign : grp.auto).push(t);
+  const HOW = { regel: 'jouw regel', geleerd: 'geleerd', herkend: 'herkend', terugkerend: 'terugkerend', onzeker: 'controleer' };
+  const row = t => `<div class="brow${t.changed ? ' chg' : ''}"><div class="bt"><b translate="no">${esc(t.desc || '(geen naam)')}</b><span>${dShort(fromIso(t.date))} · <span class="how ${t.how}">${HOW[t.how]}</span>${t.why && t.how !== 'regel' ? ` · <span translate="no">${esc(T(t.why))}</span>` : ''}</span></div>
+    <span class="ba ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' : ''}${eur2(Math.abs(t.amt))}</span>
+    <select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select></div>`;
+  const sec = (k, title, list, openDef) => {
+    if (!list.length) return '';
+    const open = BIMP.open[k] ?? openDef;
+    return `<button class="bsec" data-act="bank-toggle" data-k="${k}"><span>${title} (${list.length})</span><span class="chev">${open ? '▾' : '▸'}</span></button>` +
+      (open ? `<div class="card tight">${list.map(row).join('')}</div>` : '');
+  };
+  const spend = sum(grp.auto.filter(t => t.amt > 0 && !String(t.target).startsWith('line:')).map(t => t.amt));
+  openSheet('Bankexport inlezen', `<p class="hint">${it.length} nieuwe transacties${BIMP.dup ? ` · ${BIMP.dup} al eerder ingelezen` : ''}. ${grp.auto.length} automatisch ingedeeld (${eur(spend)}), ${grp.ign.length} tellen niet mee voor je budgetten.</p>` +
+    sec('check', 'Controleren', grp.check, true) + sec('auto', 'Ingedeeld', grp.auto, grp.check.length === 0) + sec('ign', 'Niet meegeteld', grp.ign, false) +
+    `<p class="hint">Pas je een indeling aan, dan geldt dat ook voor dezelfde winkel hierboven en onthoudt de app het voor de volgende keer.</p>
+    <button class="btn primary" data-act="bank-do">${grp.check.filter(t => !t.target).length ? `Opslaan (${grp.check.filter(t => !t.target).length} nog niet ingedeeld)` : 'Opslaan'}</button>`, { kind: 'bankrev', closeLabel: 'Annuleer' });
+}
+function learnRule(t, target) {
+  S.rules = S.rules || {};
+  if (t.iban && !t.code?.startsWith('BA') && /overschrijving|online bankieren|incasso|transfer|direct debit|ideal/.test(t.kindTxt || '')) S.rules['iban:' + t.iban] = target;
+  const k = bankKey(oName(t)); if (k) S.rules['n:' + k] = target;
+}
+function bankSetTarget(id, v) {
+  const t = BIMP.items.find(x => x.id === id); if (!t) return;
+  const k = bankKey(t.desc);
+  for (const x of BIMP.items) if (x === t || (k && bankKey(x.desc) === k && (x.how !== 'regel' || x.sib))) { x.target = v; if (x !== t) { x.how = 'regel'; x.sib = true; } x.changed = true; x.learn = x === t; }
+  if (t.how === 'onzeker') t.how = 'regel';
+  sheetBankReview();
+}
+function txMove(t) {  // jaarbudget-uitgave voor een banktransactie
+  S.moves = S.moves.filter(m => m.txId !== t.id);
+  if (t.bud && t.bud.startsWith('pot:') && t.amt) S.moves.push({ id: uid(), kind: 'uitgave', pot: t.bud.slice(4), date: t.date, amt: t.amt, note: t.desc, txId: t.id });
+}
+function bankCommit() {
+  S.ownIbans = [...BIMP.own];
+  let n = 0;
+  for (const t of BIMP.items) {
+    if (t.learn && t.target) learnRule(t, t.target);
+    const x = { id: t.id, date: t.date, amt: t.amt, desc: t.desc, memo: t.memo, iban: t.iban, code: t.code, kindTxt: t.kindTxt, cat: t.cat, src: 'bank' };
+    if (t.target && t.target !== S.catMap[t.cat]) x.bud = t.target;
+    if (!t.target) x.bud = undefined;
+    S.tx.push(x); txMove(x); n++;
+  }
+  S.lastImport = iso(today()); BIMP = null;
+  save(); closeSheet(); render(); toast(`${n} transacties ingelezen`);
+}
+// Een transactie later anders indelen (vanuit de details van een budget)
+function sheetTx(id) {
+  const t = S.tx.find(x => x.id === id); if (!t) return;
+  const k = bankKey(oName(t));
+  openSheet('Transactie', `<div class="card tight"><div class="kv"><span>Bedrag</span><b class="${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</b></div>
+    ${t.memo && t.memo !== t.desc ? `<div class="kv"><span>Omschrijving</span><b translate="no" style="font-weight:400;text-align:right;max-width:65%">${esc(t.memo)}</b></div>` : ''}
+    ${t.o ? `<div class="kv"><span>Origineel</span><b translate="no" style="font-weight:400;text-align:right;max-width:65%">${esc(t.o.desc)} · ${dShort(fromIso(t.o.date))}</b></div>` : ''}</div>
+    <label class="fld"><span>Naam</span><input id="tx-name" value="${esc(t.desc)}"></label>
+    <label class="fld"><span>Datum</span><input type="date" id="tx-date" value="${t.date}"></label>
+    <label class="fld"><span>Budget</span><select id="tx-target">${targetOptions(txTarget(t) || '', !txTarget(t))}</select></label>
+    ${k ? `<label class="chk"><input type="checkbox" id="tx-learn"> <span>Altijd zo indelen voor ‘<span translate="no">${esc(k)}</span>’</span></label>` : ''}
+    <button class="btn primary" data-act="save-tx" data-id="${t.id}">Opslaan</button>
+    <button class="btn danger" data-act="del-tx" data-id="${t.id}">Verwijderen</button>`, { kind: 'tx' });
+}
+// Handmatig geboekte uitgave van een jaarbudget aanpassen
+function sheetMoveEdit(id) {
+  const x = S.moves.find(m => m.id === id); if (!x) return;
+  const pots = S.pots.filter(p => !p.sys);
+  openSheet('Uitgave', `<div class="card tight"><div class="kv"><span>Bedrag</span><b>${eur2(x.amt)}</b></div></div>
+    <label class="fld"><span>Naam</span><input id="mv-name" value="${esc(x.note || '')}" placeholder="${esc(S.pots.find(p => p.id === x.pot)?.name || '')}"></label>
+    <label class="fld"><span>Datum</span><input type="date" id="mv-date" value="${x.date}"></label>
+    <label class="fld"><span>Budget</span><select id="mv-pot">${pots.map(p => `<option value="${p.id}"${p.id === x.pot ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <button class="btn primary" data-act="save-move" data-id="${x.id}">Opslaan</button>
+    <button class="btn danger" data-act="del-move-do" data-id="${x.id}">Verwijderen</button>`, { kind: 'mv' });
+}
+function sheetRules() {
+  const R = Object.entries(S.rules || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  openSheet('Regels voor indelen', (R.length ? `<div class="card tight">` + R.map(([k, v]) => `<div class="list-btn plain"><span><span translate="no">${esc(k.replace(/^n:/, '').replace(/^iban:/, 'IBAN '))}</span><small class="sub" style="display:block;font-size:13px">→ ${esc(targetName(v))}</small></span><span class="r"><button class="link danger-link" data-act="del-rule" data-k="${esc(k)}">Wis</button></span></div>`).join('') + `</div>`
+    : `<div class="empty">Nog geen regels. Die ontstaan vanzelf als je een transactie anders indeelt.</div>`) +
+    `<p class="hint">Regels gaan voor alles: een transactie van deze winkel of rekening komt altijd in het gekozen budget.</p>`, { kind: 'rules' });
+}
+
 function colSelect(key, allowNone) {
   return `<select data-impmap="${key}">${allowNone ? `<option value="-1"${IMP.map[key] < 0 ? ' selected' : ''}>— geen —</option>` : ''}` +
     IMP.hdr.map((h, i) => `<option value="${i}"${IMP.map[key] === i ? ' selected' : ''}>${esc(h || 'Kolom ' + (i + 1))}</option>`).join('') + `</select>`;
@@ -1331,7 +1604,7 @@ function sheetDymeCats() {
 }
 function doImport(newMap) {
   Object.assign(S.catMap, newMap);
-  const key = t => `${t.date}|${t.amt}|${t.cat}|${t.desc}`;
+  const key = t => `${t.o ? t.o.date : t.date}|${t.amt}|${t.cat}|${t.o ? t.o.desc : t.desc}`;
   const have = {}; for (const t of S.tx) { const k = key(t); have[k] = (have[k] || 0) + 1; }
   const seen = {}; let add = 0, dup = 0;
   for (const t of IMP.tx) { const k = key(t); seen[k] = (seen[k] || 0) + 1; if (seen[k] > (have[k] || 0)) { S.tx.push({ ...t, id: uid() }); add++; } else dup++; }
@@ -1561,6 +1834,30 @@ const ACT = {
   'sheet-saldi': () => sheetSaldi(),
   'sheet-accounts': () => sheetAccounts(),
   'sheet-wealth': () => sheetWealth(),
+  'bank-toggle': el => { const k = el.dataset.k; BIMP.open[k] = !($(`[data-act=bank-toggle][data-k=${k}] .chev`).textContent === '▾'); sheetBankReview(); },
+  'bank-do': () => bankCommit(),
+  'edit-tx': el => sheetTx(el.dataset.id),
+  'edit-move': el => sheetMoveEdit(el.dataset.id),
+  'detail-scope': el => { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, el.dataset.k === '' ? null : +el.dataset.k); },
+  'line-detail': el => sheetBudgetDetail(el.dataset.kind || 'line', el.dataset.id, +el.dataset.k),
+  'save-tx': el => {
+    const t = S.tx.find(x => x.id === el.dataset.id); if (!t) return; const v = val('#tx-target'); if (!v) return toast('Kies een budget');
+    const name = val('#tx-name').trim(), d = val('#tx-date');
+    if (!d || !fromIso(d)) return toast('Kies een datum');
+    if ((name && name !== t.desc) || d !== t.date) { if (!t.o) t.o = { desc: t.desc, date: t.date }; t.desc = name || t.desc; t.date = d; }
+    t.bud = v === S.catMap[t.cat] ? undefined : v; if (t.bud === undefined) delete t.bud;
+    if ($('#tx-learn')?.checked) learnRule(t, v);
+    txMove(t); save(); render(); reopenDetail(); toast('Opgeslagen');
+  },
+  'del-tx': el => { const id = el.dataset.id, t = S.tx.find(x => x.id === id);
+    if (t) { S.txGone = (S.txGone || []).concat(t.src === 'bank' ? `${t.o ? t.o.date : t.date}|${t.amt}|${oName(t)}|${t.memo}` : []).slice(-3000); }
+    S.tx = S.tx.filter(x => x.id !== id); S.moves = S.moves.filter(m => m.txId !== id); save(); render(); reopenDetail(); toast('Verwijderd'); },
+  'save-move': el => {
+    const x = S.moves.find(m => m.id === el.dataset.id); if (!x) return; const d = val('#mv-date'); if (!d || !fromIso(d)) return toast('Kies een datum');
+    x.note = val('#mv-name').trim(); x.date = d; x.pot = val('#mv-pot'); save(); render(); reopenDetail(); toast('Opgeslagen');
+  },
+  'sheet-rules': () => sheetRules(),
+  'del-rule': el => { delete S.rules[el.dataset.k]; save(); sheetRules(); },
   'edit-asset': el => sheetAsset(el.dataset.id),
   'sheet-assetval': el => sheetAssetVal(el.dataset.id),
   'sheet-koop': () => sheetKoop(),
@@ -1591,7 +1888,7 @@ const ACT = {
     save(); closeSheet(); render(); toast('Aankoop opgeslagen');
   },
   'year-step': el => { const ny = S.settings.year + (+el.dataset.d); if (ny < 2000 || ny > 2100) return; switchYear(ny); save(); render(); },
-  'budget-detail': el => sheetBudgetDetail(el.dataset.kind, el.dataset.id),
+  'budget-detail': el => sheetBudgetDetail(el.dataset.kind, el.dataset.id, null),
   'edit-saldo': el => sheetSaldo(el.dataset.id),
   'del-saldo': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); render(); sheetSaldi(); toast('Verwijderd'); },
   'del-move': el => {
@@ -1600,7 +1897,7 @@ const ACT = {
     openSheet('Mutatie', `<div class="card tight"><div class="kv"><span>${x.kind === 'opname' ? 'Opname' : x.kind === 'kas' ? 'Kasverschil' : x.kind === 'koop' ? 'Gekocht: ' + esc(S.assets.find(a => a.id === x.asset)?.name || '') : esc(p?.name || '')}</span><b>${eur2(x.amt)}</b></div><div class="kv"><span>Datum</span><b>${dLong(fromIso(x.date))}</b></div>${x.note ? `<div class="kv"><span>Notitie</span><b>${esc(x.note)}</b></div>` : ''}</div>
       <button class="btn danger" data-act="del-move-do" data-id="${x.id}">Verwijderen</button>`);
   },
-  'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); closeSheet(); render(); toast('Verwijderd'); },
+  'del-move-do': el => { S.moves = S.moves.filter(m => m.id !== el.dataset.id); save(); render(); if (ui.detail && $('#sheet-root .sheet[data-kind="mv"]')) reopenDetail(); else closeSheet(); toast('Verwijderd'); },
   'chart-sel': el => { const k = +el.dataset.k; ui.sel = ui.sel === k ? null : k; render(); },
   budmode: el => { ui.budMode = el.dataset.mode; render(); },
   'chart-mode': el => switchChart(el.dataset.mode),
@@ -1716,7 +2013,7 @@ const ACT = {
   wipe: () => confirmSheet('Alles wissen?', S.demo ? 'De demogegevens worden verwijderd.' : 'Al je budgetten, transacties en mutaties worden van dit toestel verwijderd.', 'wipe-do'),
   'wipe-do': () => { S = defaultState(); save(); closeSheet(); ui.tab = 'dash'; render(); toast('Gewist'); },
   'clear-tx': () => confirmSheet('Transacties wissen?', 'Alle ingelezen Dyme-transacties worden verwijderd. Budgetten, koppelingen en mutaties blijven.', 'clear-tx-do'),
-  'clear-tx-do': () => { S.tx = []; S.lastImport = null; save(); closeSheet(); render(); toast('Transacties gewist'); },
+  'clear-tx-do': () => { S.tx = []; S.txGone = []; S.moves = S.moves.filter(m => !m.txId); S.lastImport = null; save(); closeSheet(); render(); toast('Transacties gewist'); },
   rebase: () => confirmSheet('Prognose begin jaar vastzetten?', 'De lijn "prognose begin jaar" in de grafiek wordt vervangen door je huidige plan.', 'rebase-do'),
   'rebase-do': () => { S.baseline = null; model(); save(); closeSheet(); render(); toast('Vastgezet'); },
   'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
@@ -1746,6 +2043,7 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
+  if (t.dataset.btx) { bankSetTarget(t.dataset.btx, t.value); return; }
   if (t.dataset.impsign) { IMP.sign = t.value; sheetDymeMap(); return; }
   if (t.id === 'file-dyme' && t.files[0]) { onDymeFile(t.files[0]); t.value = ''; }
   if (t.id === 'file-budget' && t.files[0]) { onBudgetFile(t.files[0]); t.value = ''; }
