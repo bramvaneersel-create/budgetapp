@@ -65,6 +65,7 @@ function defaultState() {
     version: 2,
     settings: { year: today().getFullYear(), payday: 15, startSavings: 0, interest: 2, invStart: 0, invReturn: 5, invLine: '', lang: LANG_CUR },
     assets: defaultAssets(),  // beleggingen en andere bezittingen
+    startPre: true,
     yearSet: {},  // per budgetjaar bewaard: startsaldi, rente, rendement, prognose begin jaar
     lines: [],   // inkomen / vast / sparen / overboeking, bedrag per maand
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
@@ -80,6 +81,7 @@ function normalize(s) {
   if (!o.pots.some(p => p.sys === 'kas')) o.pots.push({ ...KAS });
   if (!Array.isArray(o.extraInc)) o.extraInc = [];
   if (!o.yearSet || typeof o.yearSet !== 'object') o.yearSet = {};
+  if (!o.startPre) { o.baseline = null; for (const v of Object.values(o.yearSet)) delete v.baseline; o.startPre = true; }   // v33: startsaldo nu vóór de januaristorting
   if (!Array.isArray(s.assets)) {  // overstap vanaf versie 22: één belegging in de instellingen
     o.assets = defaultAssets(); const b = o.assets[0], st = o.settings;
     for (const [yy, v] of Object.entries(o.yearSet)) if (+v.invStart) b.start[yy] = +v.invStart;
@@ -111,7 +113,7 @@ function balanceAt(d, excl) {
     else { const p = S.pots.find(x => x.id === m.pot); if (p && p.acct === 'spaar') act[k] += m.amt; }
   }
   let b = start;
-  for (let k = 0; k <= kd; k++) { b += (k > 0 ? pa.sparen[k] : 0) - act[k]; if (k < kd) b += b * r; }
+  for (let k = 0; k <= kd; k++) { b += pa.sparen[k] - act[k]; if (k < kd) b += b * r; }
   return b;
 }
 const saldoEntries = () => S.moves.filter(m => m.kind === 'kas' && m.saldo != null).sort((a, b) => a.date.localeCompare(b.date));
@@ -140,7 +142,7 @@ function prevYearStart() {
     for (const k of Object.keys(st0)) delete st0[k]; Object.assign(st0, o.settings); S.settings = st0;
     for (const k of Object.keys(ys0)) delete ys0[k]; Object.assign(ys0, o.yearSet); S.yearSet = ys0; S.baseline = o.baseline; };
   AUTO_BUSY = true;
-  try { switchYear(y - 1); const e = model().eind; restore(); const dep = plan().sparen[0] || 0; return { end: r2(e), dep: r2(dep), val: r2(e + dep) }; }
+  try { switchYear(y - 1); const e = model().eind; restore(); const dep = plan().sparen[0] || 0; return { end: r2(e), dep: r2(dep), val: r2(e) }; }
   catch (err) { restore(); return null; }
   finally { AUTO_BUSY = false; }
 }
@@ -414,12 +416,12 @@ function model() {
   }
   const ingEnd = cur > 11 ? 0 : buf;
 
-  // 5. Spaarrekening: startsaldo is na de storting van januari; daarna storting op elke salarisdag, rente per maand.
+  // 5. Spaarrekening: startsaldo is de stand op 1 januari (vóór de storting); storting op elke salarisdag, rente per maand.
   const r = (+S.settings.interest || 0) / 100 / 12, start = +S.settings.startSavings || 0;
   let bal = start, rente = 0, balA = start, renteA = 0;
   const fcPath = [start], periodStart = z12();   // saldo na elke periode; saldo op elke salarisdag (na storting)
   for (let k = 0; k < 12; k++) {
-    const dep = k > 0 ? pa.sparen[k] : 0;
+    const dep = pa.sparen[k];   // ook januari: het startsaldo is de stand op 1 januari, vóór de storting
     const act = opn[k] + spaarUitg[k] + koopSp[k] - kas[k];
     const fut = k >= Math.max(cur, 0) ? predOpn[k] + predSpaar[k] : 0;
     periodStart[k] = bal + dep;
@@ -432,7 +434,7 @@ function model() {
   let pb = start, prente = 0, ping = 0; const planPath = [start];
   for (let k = 0; k < 12; k++) {
     let out = 0; for (const p of S.pots) if (+p.doel > 0 && p.acct === 'spaar' && !p.sys) out += p.vrij ? p.doel / 12 : (k === 11 ? +p.doel : 0);
-    pb += (k > 0 ? pl.sparen[k] : 0) - out; const i = pb * r; prente += i; pb += i; planPath.push(pb);
+    pb += pl.sparen[k] - out; const i = pb * r; prente += i; pb += i; planPath.push(pb);
     ping += pl.vrij[k] - pl.dd[k] - pl.lopDoel / 12;
   }
   const band = cur > 11 ? 0 : 1.28 * Math.sqrt(sd2);
@@ -448,7 +450,7 @@ function model() {
   const AM = assetModel(y, P, T);
   return { y, P, T, cur, inYear, frac, elapsed, pl, pa, LA, sp, first, hasData, unmapped, lineF, dyAct, dyExp, kind, opn, spaarUitg, lopUitg, kas,
     potSpent, potRem, predOpn, predLop, predSpaar, result, ingEnd, start, eind, savingsNow, rente, renteA, planEind: pb, planRente: prente,
-    planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pl.sparen.slice(1)),
+    planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pa.sparen),
     ...(() => {
       const beleg = AM.invInleg, koop = sum(S.moves.filter(x => x.kind === 'koop' && x.date.slice(0, 4) === String(y)).map(x => x.amt));
       const ap = S.pots.find(p => !p.vrij && !p.sys && /huis|aflos|hypothe/i.test(p.name));
@@ -717,11 +719,11 @@ function renderBudget(m) {
 
   if (mode === 'periode') {
     const k = Math.min(Math.max(m.cur, 0), 11), p = m.P[k];
-    const startS = m.periodStart[k], opn = m.opn[k], uit = m.spaarUitg[k];
+    const pre = m.cur < 0, startS = pre ? m.start : m.periodStart[k], opn = pre ? 0 : m.opn[k], uit = pre ? 0 : m.spaarUitg[k];
     const ruimte = m.pl.vrij[k] - m.pl.dd[k], jb = m.lopUitg[k], besch = ruimte - jb - opn;
     const perPot = S.pots.filter(x => x.acct === 'spaar' && !x.sys).map(x => [x.name, sum(S.moves.filter(mv => mv.kind === 'uitgave' && mv.pot === x.id && fromIso(mv.date) >= p.start && fromIso(mv.date) <= p.end).map(mv => mv.amt))]).filter(x => x[1]);
-    const nk = k + 1, nDate = nk < 12 ? m.P[nk].start : payday(m.y + 1, 0), dep = m.cur < 0 ? m.pl.sparen[0] : nk < 12 ? m.pl.sparen[nk] : m.pl.sparen[0];
-    const saldoNu = startS - opn - uit + (m.kas[k] || 0), naStorting = m.cur < 0 ? m.start : saldoNu + dep;
+    const nk = pre ? 0 : k + 1, nDate = nk < 12 ? m.P[nk].start : payday(m.y + 1, 0), dep = nk < 12 ? m.pl.sparen[nk] : m.pl.sparen[0];
+    const saldoNu = startS - opn - uit + (pre ? 0 : m.kas[k] || 0), naStorting = saldoNu + dep;
     // Maandbudgetten deze periode: wat er nog over is (groen) of te veel is uitgegeven (rood)
     const mb = S.dyme.map(d => { const sp = m.sp[k]?.[d.id] || 0, dl = +d.doel[k] || 0, gr = +d.grens[k] || dl; return { d, sp, dl, gr }; });
     const budSaldo = sum(mb.map(x => x.dl - x.sp));
@@ -739,7 +741,7 @@ function renderBudget(m) {
       <p class="hint" style="margin:8px 0 0">Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.</p></div>`;
     h += `<div class="card"><div class="lbl">Spaarrekening deze periode</div>
       <div class="sub" style="margin-bottom:6px">Begint opnieuw bij elke salarisdag</div>
-      <div class="kv"><span>Startsaldo spaarrekening <small class="sub">(${dShort(p.start)}, na storting)</small></span><b>${eur(startS)}</b></div>
+      <div class="kv"><span>Startsaldo spaarrekening <small class="sub">${pre ? `(${dShort(D(m.y, 0, 1))}, vóór storting)` : `(${dShort(p.start)}, na storting)`}</small></span><b>${eur(startS)}</b></div>
       <div class="kv"><span>Extra opgenomen van spaarrekening</span><b class="${opn ? 'neg' : ''}">−${eur(opn)}</b></div>
       <div class="kv"><span>Extra uitgaven spaarrekening</span><b>−${eur(uit)}</b></div>
       ${perPot.map(([n, v]) => `<div class="kv sub-kv"><span>${esc(n)}</span><span>${eur(v)}</span></div>`).join('')}
@@ -818,8 +820,8 @@ function renderSpaar(m) {
   const pm = m.hasInv ? ui.progMode : 'spaar';
   h += `<div class="card"><div class="lbl" style="margin-bottom:8px">${pm === 'spaar' ? 'Prognose spaarrekening einde jaar' : 'Prognose beleggingen einde jaar'}</div>
     ${m.hasInv ? `<div class="seg seg-sm"><button data-act="prog-mode" data-mode="spaar" class="${pm === 'spaar' ? 'on' : ''}">Spaarrekening</button><button data-act="prog-mode" data-mode="beleg" class="${pm === 'beleg' ? 'on' : ''}">Beleggingen</button></div>` : ''}`;
-  if (pm === 'spaar') h += `<div class="kv"><span>Startsaldo (na storting jan)</span><b>${eur(m.start)}</b></div>
-    <div class="kv"><span>Stortingen feb–dec</span><b>+${eur(m.deposits)}</b></div>
+  if (pm === 'spaar') h += `<div class="kv"><span>Startsaldo 1 januari</span><b>${eur(m.start)}</b></div>
+    <div class="kv"><span>Stortingen jan–dec</span><b>+${eur(m.deposits)}</b></div>
     <div class="kv"><span>Rente (${String(S.settings.interest).replace('.', DEC)}%)</span><b>+${eur(m.rente)}</b></div>
     <div class="kv"><span>Opgenomen</span><b>−${eur(sum(m.opn))}</b></div>
     <div class="kv"><span>Verwacht nog op te nemen</span><b>−${eur(sum(m.predOpn))}</b></div>
@@ -1043,9 +1045,9 @@ function reopenDetail() { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, 
 
 function sheetAccounts() {
   const st = S.settings, y = st.year, pv = prevYearStart();
-  openSheet('Spaarrekening', `<label class="fld"><span>Saldo na storting januari ${y}</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"${st.startAuto ? ' disabled' : ''}></label>
+  openSheet('Spaarrekening', `<label class="fld"><span>Saldo 1 januari ${y} (vóór storting)</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"${st.startAuto ? ' disabled' : ''}></label>
     <label class="chk"><input type="checkbox" id="auto-start"${st.startAuto ? ' checked' : ''}${pv ? '' : ' disabled'}> <span>Automatisch overnemen uit ${y - 1}</span></label>
-    <p class="hint" style="margin-top:-8px">${pv ? `Stand einde ${y - 1}: ${eur(pv.end)} + storting januari ${eur(pv.dep)} = ${eur(pv.val)}. Werkt mee als je in ${y - 1} nog saldi of transacties toevoegt.` : `Er zijn nog geen gegevens van ${y - 1} in de app.`}</p>
+    <p class="hint" style="margin-top:-8px">${pv ? `Stand einde ${y - 1}: ${eur(pv.end)}. De storting van januari komt er vanzelf bij. Werkt mee als je in ${y - 1} nog saldi of transacties toevoegt.` : `Er zijn nog geen gegevens van ${y - 1} in de app.`}</p>
     <label class="fld"><span>Rente (% per jaar)</span><input inputmode="decimal" data-set="interest" value="${numIn(st.interest)}"></label>
     <div class="card tight"><button class="list-btn" data-act="sheet-saldi"><span>Ingevoerde saldi</span><span class="r">${saldoEntries().length}</span></button></div>
     <p class="hint">Startsaldo en rente worden per budgetjaar bewaard.</p>`, { kind: 'accounts' });
@@ -2211,7 +2213,7 @@ const ACT = {
   'rebase-do': () => { S.baseline = null; model(); save(); closeSheet(); render(); toast('Vastgezet'); },
   'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
   'new-year-do': () => { const m = model(), ny = S.settings.year + 1, had = !!S.yearSet[ny]; switchYear(ny);
-    if (!had) S.settings.startSavings = r2(m.eind + (plan().sparen[0] || 0));
+    if (!had) S.settings.startSavings = r2(m.eind);
     for (const x of m.assets) if (x.a.start[ny] == null) x.a.start[ny] = r2(x.end); save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
 };
 function updateGridTotal(g) { const t = $(`#grid-total-${g}`); if (t) t.textContent = eur(sum(gridVals(g))); const j = $(`#d-${g}-j`); if (j && (g === 'doel' || g === 'grens') && document.activeElement !== j) j.value = numIn(sum(gridVals(g))); }

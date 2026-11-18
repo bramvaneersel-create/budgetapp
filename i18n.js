@@ -330,5 +330,9 @@ window.I18N_EN = [
   ['Maandbudgetten · {} – {}', 'Monthly budgets · {} – {}'], ['{} uitgegeven van {}', '{} spent of {}'], ['{} te veel', '{} over'],
   ['Spaarrekening na deze periode', 'Savings after this period'], ['Over van maandbudgetten', 'Left from monthly budgets'],
   ['(als uitgaven zo blijven)', '(if spending stays like this)'], ['Geplande storting {}', 'Planned deposit {}'],
-  ['Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.', 'What you don’t spend from your monthly budgets this period goes to your savings.']
+  ['Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.', 'What you don’t spend from your monthly budgets this period goes to your savings.'],
+  // v33: startsaldo vóór januaristorting
+  ['Saldo 1 januari {} (vóór storting)', 'Balance 1 January {} (before deposit)'], ['Startsaldo 1 januari', 'Starting balance 1 January'],
+  ['Stortingen jan–dec', 'Deposits Jan–Dec'], ['({}, vóór storting)', '({}, before deposit)'],
+  ['Stand einde {}: {}. De storting van januari komt er vanzelf bij. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {}. The January deposit is added automatically. Updates if you still add balances or transactions in {}.']
 ];
