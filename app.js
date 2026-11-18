@@ -1507,7 +1507,7 @@ function onBankRows(rows) {
   if (!items.length) return toast('Geen transacties gevonden in dit bestand');
   // dubbele overslaan (ook als je overlappende periodes inleest)
   const key = t => `${t.o ? t.o.date : t.date}|${t.amt}|${t.o ? t.o.desc : t.desc}|${t.memo}`, have = {}, seen = {};
-  for (const t of S.tx) if (t.src === 'bank') { const k = key(t); have[k] = (have[k] || 0) + 1; }
+  for (const t of S.tx) if (t.src === 'bank' && !(t.gid && t.pi)) { const k = t.pk || key(t); have[k] = (have[k] || 0) + 1; }   // gesplitst = één transactie
   for (const k of S.txGone || []) have[k] = (have[k] || 0) + 1;  // bewust verwijderde transacties niet opnieuw inlezen
   for (const t of (S.pending && S.pending.items) || []) { const k = key(t); have[k] = (have[k] || 0) + 1; }  // nog te bekijken (later afmaken)
   const nb = trainNB(), fresh = [], P = periods(S.settings.year); let dup = 0;
@@ -1538,7 +1538,8 @@ function bankClassify(list) {
   const { own, nb, P, dup } = BPRE, fresh = list, skipped = BPRE.fresh.length - list.length;
   if (!fresh.length) { BPRE = null; closeSheet(); return toast('Geen transacties in deze periode'); }
   const hist = S.tx.filter(x => x.src === 'bank'), ctx = { own, nb, hist, P, y: S.settings.year };
-  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); t.ky = S.settings.year; t.k = suggestK(t, P); }
+  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); t.ky = S.settings.year; t.k = suggestK(t, P);
+    const sr = splitRuleFor(t); if (sr) { t.parts = applySplit(sr, t); t.how = 'regel'; t.why = 'vaste splitsing'; t.target = t.parts[0].target; if (t.parts.some(x => !x.target)) t.grp = 'check'; } }
   const pend = (S.pending && S.pending.y === S.settings.year) ? S.pending.items : [];
   BIMP = { items: [...fresh, ...pend].sort((a, b) => b.date.localeCompare(a.date)), dup, skipped, own, open: {} }; BPRE = null;
   sheetBankReview();
@@ -1588,8 +1589,11 @@ function bankSimList(t) {
   return open.filter(x => (t.iban && x.iban === t.iban) || (ka && ka.length >= 4 && bankKey(x.desc) === ka));
 }
 function bankRow(t) {
+  if (t.parts && t.parts.length > 1) return `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
+    <div class="sp-sum">${t.parts.map(p => `<span><span translate="no">${p.target ? esc(T(targetName(p.target))) : `<i class="neg">${esc(T('Kies budget'))}</i>`}</span> ${eur(p.amt)}</span>`).join('')}</div>
+    <div class="bsel"><button class="btn sp-open" data-act="split-open" data-id="${t.id}">Splitsing aanpassen</button><select class="msel" data-bk="${t.id}" aria-label="Maand">${monthOptions(t.k)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.parts.every(p => p.target) ? '' : ' disabled'}>✓</button></div></div>`;
   return `<div class="brow${t.changed ? ' chg' : ''}">${bankRowInfo(t)}
-    <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><select class="msel" data-bk="${t.id}" aria-label="Maand">${monthOptions(t.k)}</select><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
+    <div class="bsel"><select data-btx="${t.id}">${targetOptions(t.target, !t.target)}</select><select class="msel" data-bk="${t.id}" aria-label="Maand">${monthOptions(t.k)}</select><button class="sp-btn" data-act="split-open" data-id="${t.id}" aria-label="Splitsen">⑂</button><button class="ok-btn" data-act="bank-ok" data-id="${t.id}" aria-label="Akkoord, doorsturen"${t.target ? '' : ' disabled'}>✓</button></div></div>`;
 }
 function bankDraft() {   // tussenstand steeds bewaren, zodat er nooit werk verloren gaat
   S.pending = { y: S.settings.year, items: BIMP.items, dup: BIMP.dup || 0, skipped: BIMP.skipped || 0 }; S.ownIbans = [...BIMP.own];
@@ -1605,6 +1609,7 @@ function sheetBankReview() {
       <button class="btn" data-act="bank-close-keep">Afsluiten en later verder</button>
       <button class="btn danger" data-act="bank-discard">Import weggooien</button>`, { kind: 'bankrev', closeLabel: 'Terug' });
   }
+  if (SPED && SPED.ctx === 'imp') return openSheet('Bankexport inlezen', splitHtml(), { kind: 'bankrev', closeLabel: 'Annuleer' });
   if (BIMP.sim) return sheetBankSim();
   const it = BIMP.items, todo = it.filter(t => !t.done), done = it.filter(t => t.done), grp = { check: [], auto: [], ign: [] };
   // groep ligt vast bij het inlezen: een andere keuze verplaatst de transactie pas na het vinkje
@@ -1636,8 +1641,8 @@ function sheetBankSim() {
 }
 function bankOk(id) {
   const t = BIMP.items.find(x => x.id === id); if (!t) return;
-  if (!t.target) return toast('Kies eerst een budget');
-  t.done = true; if (t.how === 'onzeker' || t.changed) { t.learn = true; if (t.how === 'onzeker') t.how = 'regel'; }
+  if (!t.target || (t.parts && t.parts.some(p => !p.target))) return toast('Kies eerst een budget');
+  t.done = true; if (t.parts) { toast('Doorgestuurd'); return sheetBankReview(); } if (t.how === 'onzeker' || t.changed) { t.learn = true; if (t.how === 'onzeker') t.how = 'regel'; }
   const cands = bankSimList(t).slice(0, 60);
   if (!cands.length) { toast('Doorgestuurd'); return sheetBankReview(); }
   BIMP.scroll = $('#sheet-root .sheet')?.scrollTop || 0;
@@ -1672,8 +1677,77 @@ function txMove(t) {  // jaarbudget-uitgave voor een banktransactie
   S.moves = S.moves.filter(m => m.txId !== t.id);
   if (t.bud && t.bud.startsWith('pot:') && t.amt) S.moves.push({ id: uid(), kind: 'uitgave', pot: t.bud.slice(4), date: t.date, amt: t.amt, note: t.desc, txId: t.id, ...(t.k != null ? { k: t.k, ky: t.ky } : {}) });
 }
+/* ───────────── splitsen: één bedrag over meerdere posten (bijv. salaris + vergoedingen + declaratie) ───────────── */
+const bankDupKey = t => `${t.o ? t.o.date : t.date}|${t.amt}|${t.o ? t.o.desc : t.desc}|${t.memo}`;
+const splitKey = t => t.iban ? 'iban:' + t.iban : (bankKey(oName(t)) ? 'n:' + bankKey(oName(t)) : null);
+function splitRuleFor(t) { const k = splitKey(t); return k && S.splitRules && S.splitRules[k] ? S.splitRules[k] : null; }
+function planOf(target, k) {
+  const l = target && target.startsWith('line:') ? S.lines.find(x => 'line:' + x.id === target) : null; if (!l) return null;
+  return l.rest ? plan().restM[k] : +l.m[k] || 0;
+}
+// Vaste splitsing toepassen: posten in volgorde vullen met hun geplande bedrag; wat overblijft is de rest (bijv. declaratie)
+function applySplit(rule, t) {
+  let rem = r2(Math.abs(t.amt)); const parts = [];
+  // kleinste geplande post eerst (bijv. vergoedingen), zodat de grootste (salaris) een tekort opvangt
+  const rows = [...rule.rows].sort((a, b) => (planOf(a.target, t.k) ?? 0) - (planOf(b.target, t.k) ?? 0));
+  for (const r of rows) {
+    const want = r.plan ? (planOf(r.target, t.k) ?? 0) : +r.amt || 0, a = r2(Math.min(want, rem));
+    if (a > 0 && validTarget(r.target)) { parts.push({ target: r.target, amt: a }); rem = r2(rem - a); }
+  }
+  if (rem > 0.004) parts.push({ target: rule.rest && validTarget(rule.rest) ? rule.rest : '', amt: rem, rest: true });
+  return parts;
+}
+let SPED = null;   // splits-editor: { ctx: 'imp'|'tx', id, total, sign, k, desc, date, rows, learn }
+function splitRemain() { return r2(SPED.total - sum(SPED.rows.map(r => +r.amt || 0))); }
+function splitHtml() {
+  const rem = splitRemain(), key = SPED.key;
+  return `<div class="card"><div class="row"><b translate="no">${esc(SPED.desc)}</b><b class="${SPED.sign < 0 ? 'pos' : ''}">${SPED.sign < 0 ? '+' : ''}${eur2(SPED.total)}</b></div><div class="sub">${dLong(fromIso(SPED.date))} · ${MONF[SPED.k]}</div></div>
+    <div class="card tight">${SPED.rows.map((r, i) => `<div class="sp-row"><select data-sptg="${i}">${targetOptions(r.target, !r.target)}</select><input inputmode="decimal" data-spamt="${i}" value="${numIn(r.amt)}"><button class="sp-del" data-act="split-del" data-i="${i}" aria-label="Regel weg"${SPED.rows.length < 2 ? ' disabled' : ''}>✕</button>
+      ${planOf(r.target, SPED.k) != null ? `<span class="sp-plan">gepland ${eur(planOf(r.target, SPED.k))}</span>` : ''}</div>`).join('')}
+      <button class="list-btn sub-row add-row" data-act="split-add"><span>+ Regel toevoegen</span><span class="r"></span></button></div>
+    <div class="kv total" style="margin:0 4px 12px"><span>${Math.abs(rem) < 0.005 ? 'Alles verdeeld' : rem > 0 ? 'Nog te verdelen' : 'Te veel verdeeld'}</span><b class="${Math.abs(rem) < 0.005 ? 'pos' : 'neg'}">${eur2(Math.abs(rem))}</b></div>
+    ${key ? `<label class="chk"><input type="checkbox" id="sp-learn"${SPED.learn ? ' checked' : ''}> <span>Altijd zo splitsen voor ‘<span translate="no">${esc(key.replace(/^n:/, '').replace(/^iban:/, 'IBAN '))}</span>’</span></label>
+      <p class="hint" style="margin-top:-8px">Posten uit je maandplan krijgen dan elke maand hun geplande bedrag. Wat overblijft (bijv. een declaratie) vraagt de app elke keer aan jou.</p>` : ''}
+    <button class="btn primary" data-act="split-save"${Math.abs(rem) < 0.005 && SPED.rows.every(r => r.target && +r.amt > 0) ? '' : ' disabled'}>Splitsing opslaan</button>
+    <button class="btn" data-act="split-cancel">Terug</button>`;
+}
+function openSplit(ctx, src, rows) {
+  const k = ctx === 'imp' ? src.k : Math.max(0, Math.min(11, txK(src, periods(S.settings.year), S.settings.year)));
+  const total = r2(Math.abs(ctx === 'imp' ? src.amt : (src.gid ? S.tx.find(x => x.id === src.gid)?.gt ?? src.gt : src.amt)));
+  SPED = { ctx, id: ctx === 'imp' ? src.id : (src.gid || src.id), total, sign: Math.sign(src.gt ?? src.amt) || 1, k, desc: oName(src), date: src.o ? src.o.date : src.date,
+    rows, key: splitKey(src), learn: !!splitRuleFor(src) };
+  showSplit();
+}
+function showSplit() { if (SPED.ctx === 'imp') sheetBankReview(); else openSheet('Splitsen', splitHtml(), { kind: 'split' }); }
+function saveSplit() {
+  const rows = SPED.rows.filter(r => +r.amt > 0).map(r => ({ target: r.target, amt: r2(+r.amt) }));
+  if (SPED.learn && SPED.key) {   // vaste splitsing: posten met een plan krijgen hun geplande bedrag, de laatste regel is de rest
+    S.splitRules = S.splitRules || {};
+    S.splitRules[SPED.key] = { rows: rows.filter(r => planOf(r.target, SPED.k) != null).map(r => ({ target: r.target, plan: true })), rest: '' };
+  } else if (SPED.key && S.splitRules && S.splitRules[SPED.key] && !SPED.learn) delete S.splitRules[SPED.key];
+  if (SPED.ctx === 'imp') {
+    const t = BIMP.items.find(x => x.id === SPED.id);
+    if (rows.length === 1) { delete t.parts; t.target = rows[0].target; } else { t.parts = rows; t.target = rows[0].target; }
+    t.changed = true; SPED = null; sheetBankReview(); return;
+  }
+  // opgeslagen transactie: groep vervangen door nieuwe delen
+  const old = S.tx.filter(x => x.id === SPED.id || x.gid === SPED.id), base = old.find(x => x.id === SPED.id) || old[0];
+  const pk = base.pk || bankDupKey({ ...base, amt: base.gt ?? base.amt }), gt = base.gt ?? base.amt;
+  S.tx = S.tx.filter(x => !old.includes(x)); S.moves = S.moves.filter(m => !old.some(o => o.id === m.txId));
+  storeParts({ ...base, amt: gt, id: SPED.id }, rows, pk);
+  SPED = null; save(); render(); reopenDetail(); toast('Splitsing opgeslagen');
+}
+function storeParts(t, parts, pk) {
+  const sign = Math.sign(t.amt) || 1;
+  parts.forEach((p, i) => {
+    const x = { id: i ? uid() : t.id, date: t.date, amt: r2(sign * p.amt), desc: t.desc, memo: t.memo, iban: t.iban, code: t.code, kindTxt: t.kindTxt, cat: t.cat, src: t.src || 'bank', k: t.k, ky: t.ky,
+      bud: p.target, ...(parts.length > 1 ? { gid: t.id, pi: i, gt: t.amt, pk } : {}), ...(t.o ? { o: t.o } : {}) };
+    S.tx.push(x); txMove(x);
+  });
+}
 function bankStore(list) {
   for (const t of list) {
+    if (t.parts && t.parts.length > 1) { storeParts(t, t.parts, bankDupKey(t)); continue; }
     if (t.learn && t.target) learnRule(t, t.target);
     const x = { id: t.id, date: t.date, amt: t.amt, desc: t.desc, memo: t.memo, iban: t.iban, code: t.code, kindTxt: t.kindTxt, cat: t.cat, src: 'bank', k: t.k, ky: t.ky };
     if (t.target && t.target !== S.catMap[t.cat]) x.bud = t.target;
@@ -1705,6 +1779,7 @@ function sheetTx(id) {
   const t = S.tx.find(x => x.id === id); if (!t) return;
   const k = bankKey(oName(t));
   openSheet('Transactie', `<div class="card tight"><div class="kv"><span>Bedrag</span><b class="${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</b></div>
+    ${t.gid ? `<div class="kv"><span>Deel van gesplitste transactie</span><b>${eur2(Math.abs(t.gt))}</b></div>` : ''}
     ${t.memo && t.memo !== t.desc ? `<div class="kv"><span>Omschrijving</span><b translate="no" style="font-weight:400;text-align:right;max-width:65%">${esc(t.memo)}</b></div>` : ''}
     ${t.o ? `<div class="kv"><span>Origineel</span><b translate="no" style="font-weight:400;text-align:right;max-width:65%">${esc(t.o.desc)} · ${dShort(fromIso(t.o.date))}</b></div>` : ''}</div>
     <label class="fld"><span>Naam</span><input id="tx-name" value="${esc(t.desc)}"></label>
@@ -1713,7 +1788,8 @@ function sheetTx(id) {
     <label class="fld" style="flex:0 0 96px"><span>Maand</span><select id="tx-k">${monthOptions(Math.max(0, Math.min(11, txK(t, periods(S.settings.year), S.settings.year))))}</select></label></div>
     ${k ? `<label class="chk"><input type="checkbox" id="tx-learn"> <span>Altijd zo indelen voor ‘<span translate="no">${esc(k)}</span>’</span></label>` : ''}
     <button class="btn primary" data-act="save-tx" data-id="${t.id}">Opslaan</button>
-    <button class="btn danger" data-act="del-tx" data-id="${t.id}">Verwijderen</button>`, { kind: 'tx' });
+    <button class="btn" data-act="split-tx" data-id="${t.id}">${t.gid ? 'Splitsing aanpassen' : 'Splitsen'}</button>
+    <button class="btn danger" data-act="del-tx" data-id="${t.id}">${t.gid ? 'Hele transactie verwijderen' : 'Verwijderen'}</button>`, { kind: 'tx' });
 }
 // Handmatig geboekte uitgave van een jaarbudget aanpassen
 function sheetMoveEdit(id) {
@@ -1989,6 +2065,8 @@ const gridVals = g => { const v = z12(); $$(`[data-grid="${g}"]`).forEach(i => {
 const ACT = {
   tab: el => { ui.tab = el.dataset.tab; ui.sel = null; closeSheet(); render(); const t = el.dataset.scroll && document.getElementById(el.dataset.scroll); if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0); },
   'close-sheet': () => {
+    if (SPED && SPED.ctx === 'imp') SPED = null;
+    if (SPED && $('#sheet-root .sheet[data-kind="split"]')) { SPED = null; }
     if (BIMP && $('#sheet-root .sheet[data-kind="bankrev"]')) { BIMP.sim = null; BIMP.confirm = true; return sheetBankReview(); }   // nooit zomaar je werk weggooien
     closeSheet(); IMP = null; BIMP = null; BPRE = null; },
   'bank-back': () => { BIMP.confirm = false; sheetBankReview(); },
@@ -2021,6 +2099,15 @@ const ACT = {
   'sheet-wealth': () => sheetWealth(),
   'bank-toggle': el => { const k = el.dataset.k; BIMP.open[k] = !($(`[data-act=bank-toggle][data-k=${k}] .chev`).textContent === '▾'); sheetBankReview(); },
   'bank-do': () => bankCommit(),
+  'split-open': el => { const t = BIMP.items.find(x => x.id === el.dataset.id); if (!t) return;
+    openSplit('imp', t, t.parts ? t.parts.map(p => ({ ...p })) : [{ target: t.target, amt: r2(Math.abs(t.amt)) }, { target: '', amt: 0 }]); },
+  'split-tx': el => { const t = S.tx.find(x => x.id === el.dataset.id); if (!t) return;
+    const g = t.gid ? S.tx.filter(x => x.gid === t.gid).sort((a, b) => a.pi - b.pi) : [t];
+    openSplit('tx', t.gid ? { ...t, id: t.gid } : t, g.length > 1 ? g.map(x => ({ target: txTarget(x) || '', amt: r2(Math.abs(x.amt)) })) : [{ target: txTarget(t) || '', amt: r2(Math.abs(t.amt)) }, { target: '', amt: 0 }]); },
+  'split-add': () => { const rem = splitRemain(); SPED.rows.push({ target: '', amt: rem > 0 ? rem : 0 }); showSplit(); },
+  'split-del': el => { SPED.rows.splice(+el.dataset.i, 1); showSplit(); },
+  'split-save': () => saveSplit(),
+  'split-cancel': () => { const c = SPED.ctx; SPED = null; if (c === 'imp') sheetBankReview(); else reopenDetail(); },
   'bank-later': () => bankLater(),
   'bank-resume': () => bankResume(),
   'bank-sim-all': () => { const p = BIMP.sim.pick, on = !Object.values(p).every(Boolean); for (const k in p) p[k] = on; sheetBankSim(); },
@@ -2045,8 +2132,9 @@ const ACT = {
     txMove(t); save(); render(); reopenDetail(); toast('Opgeslagen');
   },
   'del-tx': el => { const id = el.dataset.id, t = S.tx.find(x => x.id === id);
-    if (t) { S.txGone = (S.txGone || []).concat(t.src === 'bank' ? `${t.o ? t.o.date : t.date}|${t.amt}|${oName(t)}|${t.memo}` : []).slice(-3000); }
-    S.tx = S.tx.filter(x => x.id !== id); S.moves = S.moves.filter(m => m.txId !== id); save(); render(); reopenDetail(); toast('Verwijderd'); },
+    if (t) { S.txGone = (S.txGone || []).concat(t.src === 'bank' ? (t.pk || bankDupKey(t)) : []).slice(-3000); }
+    const grp = t && t.gid ? S.tx.filter(x => x.gid === t.gid).map(x => x.id) : [id];
+    S.tx = S.tx.filter(x => !grp.includes(x.id)); S.moves = S.moves.filter(m => !grp.includes(m.txId)); save(); render(); reopenDetail(); toast('Verwijderd'); },
   'save-move': el => {
     const x = S.moves.find(m => m.id === el.dataset.id); if (!x) return; const d = val('#mv-date'); if (!d || !fromIso(d)) return toast('Kies een datum');
     x.note = val('#mv-name').trim(); x.date = d; x.pot = val('#mv-pot'); save(); render(); reopenDetail(); toast('Opgeslagen');
@@ -2239,6 +2327,9 @@ document.addEventListener('change', e => {
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
   if (t.id === 'auto-start') { S.settings.startAuto = t.checked; save(); render(); sheetAccounts(); toast(t.checked ? 'Startsaldo wordt automatisch overgenomen' : 'Startsaldo zelf invullen'); return; }
+  if (t.dataset.sptg != null && SPED) { SPED.rows[+t.dataset.sptg].target = t.value; return showSplit(); }
+  if (t.dataset.spamt != null && SPED) { const v = parseNum(t.value); SPED.rows[+t.dataset.spamt].amt = isNaN(v) ? 0 : r2(Math.abs(v)); return showSplit(); }
+  if (t.id === 'sp-learn' && SPED) { SPED.learn = t.checked; return; }
   if (t.dataset.btx) { bankSetTarget(t.dataset.btx, t.value); return; }
   if (t.dataset.bk) { const x = BIMP.items.find(y => y.id === t.dataset.bk); if (x) { x.k = +t.value; x.kSet = true; } return; }
   if (t.dataset.bfrom && BPRE) { if (t.value) BPRE.from = t.value; const b = $('#bank-from-btn'); if (b) b.textContent = T(`${bankCount()} transacties bekijken`); return; }

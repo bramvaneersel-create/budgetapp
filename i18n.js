@@ -334,5 +334,12 @@ window.I18N_EN = [
   // v33: startsaldo vóór januaristorting
   ['Saldo 1 januari {} (vóór storting)', 'Balance 1 January {} (before deposit)'], ['Startsaldo 1 januari', 'Starting balance 1 January'],
   ['Stortingen jan–dec', 'Deposits Jan–Dec'], ['({}, vóór storting)', '({}, before deposit)'],
-  ['Stand einde {}: {}. De storting van januari komt er vanzelf bij. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {}. The January deposit is added automatically. Updates if you still add balances or transactions in {}.']
+  ['Stand einde {}: {}. De storting van januari komt er vanzelf bij. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {}. The January deposit is added automatically. Updates if you still add balances or transactions in {}.'],
+  // v34: splitsen
+  ['Splitsen', 'Split'], ['Splitsing aanpassen', 'Edit split'], ['Hele transactie verwijderen', 'Delete whole transaction'],
+  ['Deel van gesplitste transactie', 'Part of split transaction'], ['gepland {}', 'planned {}'], ['+ Regel toevoegen', '+ Add line'],
+  ['Alles verdeeld', 'Fully allocated'], ['Nog te verdelen', 'Left to allocate'], ['Te veel verdeeld', 'Over-allocated'],
+  ['Altijd zo splitsen voor ‘', 'Always split like this for ‘'],
+  ['Posten uit je maandplan krijgen dan elke maand hun geplande bedrag. Wat overblijft (bijv. een declaratie) vraagt de app elke keer aan jou.', 'Items from your monthly plan then get their planned amount every month. Whatever is left (e.g. an expense claim) the app asks you each time.'],
+  ['Splitsing opslaan', 'Save split'], ['Splitsing opgeslagen', 'Split saved'], ['vaste splitsing', 'fixed split'], ['Kies budget', 'Choose budget'], ['Regel weg', 'Remove line']
 ];
