@@ -320,5 +320,10 @@ window.I18N_EN = [
   ['Nog {} transacties te bekijken', '{} transactions left to review'], ['Import afmaken', 'Finish import'],
   // v30: import nooit zomaar sluiten
   ['Terug', 'Back'], ['Import afsluiten?', 'Close import?'], ['{} afgehandeld · {} nog te bekijken.', '{} done · {} left to review.'], ['Terug naar import', 'Back to import'],
-  ['Afsluiten en later verder', 'Close and continue later'], ['Import weggooien', 'Discard import'], ['Import weggegooid', 'Import discarded']
+  ['Afsluiten en later verder', 'Close and continue later'], ['Import weggooien', 'Discard import'], ['Import weggegooid', 'Import discarded'],
+  // v31: startsaldo automatisch uit vorig jaar
+  ['Automatisch overnemen uit {}', 'Take over automatically from {}'],
+  ['Stand einde {}: {} + storting januari {} = {}. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {} + January deposit {} = {}. Updates if you still add balances or transactions in {}.'],
+  ['Er zijn nog geen gegevens van {} in de app.', 'There is no data for {} in the app yet.'],
+  ['Startsaldo wordt automatisch overgenomen', 'Starting balance is taken over automatically'], ['Startsaldo zelf invullen', 'Enter starting balance yourself']
 ];

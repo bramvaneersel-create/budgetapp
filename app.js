@@ -118,17 +118,35 @@ const saldoEntries = () => S.moves.filter(m => m.kind === 'kas' && m.saldo != nu
 function recomputeKas() {
   for (const e of saldoEntries()) e.amt = r2(e.saldo - balanceAt(e.date, e.id));
 }
-function save() { try { if (S.moves && S.moves.some(m => m.kind === 'kas' && m.saldo != null)) recomputeKas(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
+let AUTO_BUSY = false;
+function save() { if (AUTO_BUSY) return; try { if (S.moves && S.moves.some(m => m.kind === 'kas' && m.saldo != null)) recomputeKas(); syncAutoStart(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
 /* Wisselen van budgetjaar: de instellingen die per jaar verschillen worden apart per jaar bewaard. */
-const YEAR_KEYS = ['startSavings', 'interest', 'invStart', 'invReturn'];
+const YEAR_KEYS = ['startSavings', 'interest', 'invStart', 'invReturn', 'startAuto'];
 function switchYear(ny) {
   const st = S.settings, cur = {}; for (const k of YEAR_KEYS) cur[k] = st[k];
   if (S.baseline && S.baseline.year === st.year) cur.baseline = S.baseline;
   S.yearSet[st.year] = cur;
   const nx = S.yearSet[ny];
   if (nx) { for (const k of YEAR_KEYS) if (nx[k] != null) st[k] = nx[k]; S.baseline = nx.baseline || null; }
-  else { st.startSavings = 0; st.invStart = 0; S.baseline = null; }
+  else { st.startSavings = 0; st.invStart = 0; st.startAuto = false; S.baseline = null; }
   st.year = ny;
+}
+/* Startsaldo automatisch uit het vorige boekjaar: verwachte (of werkelijke) stand einde vorig jaar + storting januari.
+   Rekent het vorige jaar door met de instellingen van dat jaar, zonder iets op te slaan. */
+function prevYearStart() {
+  const y = S.settings.year; if (!S.yearSet[y - 1]) return null;
+  const st0 = S.settings, ys0 = S.yearSet, keep = JSON.stringify({ settings: st0, yearSet: ys0, baseline: S.baseline });
+  const restore = () => { const o = JSON.parse(keep);   // terugzetten in dezelfde objecten, zodat bestaande verwijzingen kloppen
+    for (const k of Object.keys(st0)) delete st0[k]; Object.assign(st0, o.settings); S.settings = st0;
+    for (const k of Object.keys(ys0)) delete ys0[k]; Object.assign(ys0, o.yearSet); S.yearSet = ys0; S.baseline = o.baseline; };
+  AUTO_BUSY = true;
+  try { switchYear(y - 1); const e = model().eind; restore(); const dep = plan().sparen[0] || 0; return { end: r2(e), dep: r2(dep), val: r2(e + dep) }; }
+  catch (err) { restore(); return null; }
+  finally { AUTO_BUSY = false; }
+}
+function syncAutoStart() {
+  if (!S.settings.startAuto) return;
+  const p = prevYearStart(); if (p) S.settings.startSavings = p.val;
 }
 let S = load();
 setLangFormats(S.settings.lang);
@@ -1025,8 +1043,10 @@ function sheetBudgetDetail(kind, id, k = null) {
 function reopenDetail() { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, d.k); else closeSheet(); }
 
 function sheetAccounts() {
-  const st = S.settings, y = st.year;
-  openSheet('Spaarrekening', `<label class="fld"><span>Saldo na storting januari ${y}</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"></label>
+  const st = S.settings, y = st.year, pv = prevYearStart();
+  openSheet('Spaarrekening', `<label class="fld"><span>Saldo na storting januari ${y}</span><input inputmode="decimal" data-set="startSavings" value="${numIn(st.startSavings)}"${st.startAuto ? ' disabled' : ''}></label>
+    <label class="chk"><input type="checkbox" id="auto-start"${st.startAuto ? ' checked' : ''}${pv ? '' : ' disabled'}> <span>Automatisch overnemen uit ${y - 1}</span></label>
+    <p class="hint" style="margin-top:-8px">${pv ? `Stand einde ${y - 1}: ${eur(pv.end)} + storting januari ${eur(pv.dep)} = ${eur(pv.val)}. Werkt mee als je in ${y - 1} nog saldi of transacties toevoegt.` : `Er zijn nog geen gegevens van ${y - 1} in de app.`}</p>
     <label class="fld"><span>Rente (% per jaar)</span><input inputmode="decimal" data-set="interest" value="${numIn(st.interest)}"></label>
     <div class="card tight"><button class="list-btn" data-act="sheet-saldi"><span>Ingevoerde saldi</span><span class="r">${saldoEntries().length}</span></button></div>
     <p class="hint">Startsaldo en rente worden per budgetjaar bewaard.</p>`, { kind: 'accounts' });
@@ -2217,6 +2237,7 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
+  if (t.id === 'auto-start') { S.settings.startAuto = t.checked; save(); render(); sheetAccounts(); toast(t.checked ? 'Startsaldo wordt automatisch overgenomen' : 'Startsaldo zelf invullen'); return; }
   if (t.dataset.btx) { bankSetTarget(t.dataset.btx, t.value); return; }
   if (t.dataset.bk) { const x = BIMP.items.find(y => y.id === t.dataset.bk); if (x) { x.k = +t.value; x.kSet = true; } return; }
   if (t.dataset.bfrom && BPRE) { if (t.value) BPRE.from = t.value; const b = $('#bank-from-btn'); if (b) b.textContent = T(`${bankCount()} transacties bekijken`); return; }
@@ -2238,6 +2259,7 @@ let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = T(msg); t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
+try { if (S.settings.startAuto) { syncAutoStart(); localStorage.setItem(KEY, JSON.stringify(S)); } } catch (e) {}
 render();
 // Opstartanimatie: ring loopt rond, daarna "Welcome back." en de app verschijnt. Tik om over te slaan.
 (() => {
