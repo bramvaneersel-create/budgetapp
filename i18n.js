@@ -325,5 +325,10 @@ window.I18N_EN = [
   ['Automatisch overnemen uit {}', 'Take over automatically from {}'],
   ['Stand einde {}: {} + storting januari {} = {}. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {} + January deposit {} = {}. Updates if you still add balances or transactions in {}.'],
   ['Er zijn nog geen gegevens van {} in de app.', 'There is no data for {} in the app yet.'],
-  ['Startsaldo wordt automatisch overgenomen', 'Starting balance is taken over automatically'], ['Startsaldo zelf invullen', 'Enter starting balance yourself']
+  ['Startsaldo wordt automatisch overgenomen', 'Starting balance is taken over automatically'], ['Startsaldo zelf invullen', 'Enter starting balance yourself'],
+  // v32: maandbudgetten bovenaan Deze periode
+  ['Maandbudgetten · {} – {}', 'Monthly budgets · {} – {}'], ['{} uitgegeven van {}', '{} spent of {}'], ['{} te veel', '{} over'],
+  ['Spaarrekening na deze periode', 'Savings after this period'], ['Over van maandbudgetten', 'Left from monthly budgets'],
+  ['(als uitgaven zo blijven)', '(if spending stays like this)'], ['Geplande storting {}', 'Planned deposit {}'],
+  ['Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.', 'What you don’t spend from your monthly budgets this period goes to your savings.']
 ];

@@ -722,16 +722,21 @@ function renderBudget(m) {
     const perPot = S.pots.filter(x => x.acct === 'spaar' && !x.sys).map(x => [x.name, sum(S.moves.filter(mv => mv.kind === 'uitgave' && mv.pot === x.id && fromIso(mv.date) >= p.start && fromIso(mv.date) <= p.end).map(mv => mv.amt))]).filter(x => x[1]);
     const nk = k + 1, nDate = nk < 12 ? m.P[nk].start : payday(m.y + 1, 0), dep = m.cur < 0 ? m.pl.sparen[0] : nk < 12 ? m.pl.sparen[nk] : m.pl.sparen[0];
     const saldoNu = startS - opn - uit + (m.kas[k] || 0), naStorting = m.cur < 0 ? m.start : saldoNu + dep;
-    h += `<div class="card"><div class="lbl">Vrije ruimte beschikbaar · ${dShort(p.start)} – ${dShort(p.end)}</div>
-      <div class="big ${besch >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 8px">${eurS(besch)}</div>
-      <div class="kv"><span>Vrije ruimte deze periode</span><b>${eur(m.pl.vrij[k])}</b></div>
-      <div class="kv"><span>Maandbudgetten (in Dyme)</span><b>−${eur(m.pl.dd[k])}</b></div>
-      <div class="kv"><span>Jaarbudgetten van lopende rekening</span><b>−${eur(jb)}</b></div>
-      <div class="kv"><span>Extra opgenomen</span><b>−${eur(opn)}</b></div>
-      <div class="divider"></div>
-      <div class="kv"><span>Storting ${MONF[nDate.getMonth()]} <small class="sub">(${dLong(nDate)})</small></span><b class="pos">+${eur(dep)}</b></div>
-      <div class="kv total"><span>Saldo spaarrekening na storting</span><b>${eur(naStorting)}</b></div>
-      <p class="hint" style="margin:8px 0 0">Plus: je hebt nog ruimte voor jaarbudgetten. Min: je hebt deze periode meer uitgegeven dan je vrije ruimte.</p></div>`;
+    // Maandbudgetten deze periode: wat er nog over is (groen) of te veel is uitgegeven (rood)
+    const mb = S.dyme.map(d => { const sp = m.sp[k]?.[d.id] || 0, dl = +d.doel[k] || 0, gr = +d.grens[k] || dl; return { d, sp, dl, gr }; });
+    const budSaldo = sum(mb.map(x => x.dl - x.sp));
+    h += `<div class="card"><div class="lbl">Maandbudgetten · ${dShort(p.start)} – ${dShort(p.end)}</div>
+      <div class="big ${budSaldo >= 0 ? 'pos' : 'neg'}" style="margin:6px 0 2px">${eurS(budSaldo)}</div>
+      <div class="sub" style="margin-bottom:6px">${eur(sum(mb.map(x => x.sp)))} uitgegeven van ${eur(sum(mb.map(x => x.dl)))}</div>
+      ${mb.map(x => `<button class="mb-row" data-act="line-detail" data-kind="dyme" data-id="${x.d.id}" data-k="${k}">
+        <span class="mb-top"><span class="n">${esc(x.d.name)}</span><span class="v"><b>${eur(x.sp)}</b> <small class="sub">/ ${eur(x.dl)}</small></span><span class="chev">›</span></span>
+        ${bar(Math.max(0, x.sp), x.dl, x.gr)}
+        <span class="mb-sub ${x.dl - x.sp >= 0 ? '' : 'neg'}">${x.dl - x.sp >= 0 ? `nog ${eur(x.dl - x.sp)}` : `${eur(x.sp - x.dl)} te veel`}</span></button>`).join('')}</div>`;
+    h += `<div class="card"><div class="lbl" style="margin-bottom:6px">Spaarrekening na deze periode</div>
+      <div class="kv"><span>Over van maandbudgetten <small class="sub">(als uitgaven zo blijven)</small></span><b class="${budSaldo >= 0 ? 'pos' : 'neg'}">${eurS(budSaldo)}</b></div>
+      <div class="kv"><span>Geplande storting ${MONF[nDate.getMonth()]} <small class="sub">(${dLong(nDate)})</small></span><b class="pos">+${eur(dep)}</b></div>
+      <div class="kv total"><span>Saldo spaarrekening na storting</span><b>${eur(naStorting + budSaldo)}</b></div>
+      <p class="hint" style="margin:8px 0 0">Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.</p></div>`;
     h += `<div class="card"><div class="lbl">Spaarrekening deze periode</div>
       <div class="sub" style="margin-bottom:6px">Begint opnieuw bij elke salarisdag</div>
       <div class="kv"><span>Startsaldo spaarrekening <small class="sub">(${dShort(p.start)}, na storting)</small></span><b>${eur(startS)}</b></div>
@@ -781,12 +786,6 @@ function renderBudget(m) {
       <button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button></div>
     <div class="section-head out"><span>Uitgaven ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>−${eur(uitTot)}</b></div>
     <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
-    <div class="section-head"><span>Vrije ruimte ${MONF[pm]}</span><b>${eur(pt.vrij[pm])}</b></div>
-    <div class="card tight">
-    <div class="list-btn plain sub-row" style="border-top:0"><span>Maandbudgetten (doel · grens)</span><span class="r">${eur(pl.dd[pm])} · ${eur(pl.dg[pm])}</span></div>
-    ${S.dyme.map(d => { const sp = m.sp[pm]?.[d.id] || 0, dl = +d.doel[pm] || 0; return `<button class="list-btn sub-row sub2" data-act="line-detail" data-kind="dyme" data-id="${d.id}" data-k="${pm}"><span>${esc(d.name)}</span><span class="r ${sp > (+d.grens[pm] || dl) + 0.5 ? 'neg' : ''}">${eur(sp)} <small class="sub">/ ${eur(dl)}</small></span></button>`; }).join('')}
-    ${pl.lopDoel ? `<div class="list-btn plain sub-row"><span>Jaarbudgetten lopende rekening (÷12)</span><span class="r">${eur(pl.lopDoel / 12)}</span></div>` : ''}
-    <div class="list-btn plain grp"><span>Blijft op lopende rekening</span><span class="r ${onder >= 0 ? 'pos' : 'neg'}">${eurS(onder)}</span></div></div>
     <p class="hint">Tik op een post voor de transacties en om de bedragen aan te passen.</p>
     <button class="btn" data-act="edit-line" data-id="">Post toevoegen</button>`;
   return h;

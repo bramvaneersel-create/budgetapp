@@ -356,3 +356,12 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .cat-tag{display:inline-block;align-self:flex-start;margin-top:4px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--card2);color:var(--ink);opacity:.8}
 .sim-src .row{align-items:center}
 .fld input:disabled{opacity:.55}
+/* maandbudgetten deze periode */
+.mb-row{display:block;width:100%;text-align:left;padding:12px 0 10px;border-top:1px solid var(--line);color:var(--ink)}
+.mb-row:first-of-type{margin-top:6px}
+.mb-top{display:flex;align-items:baseline;gap:8px;margin-bottom:7px}
+.mb-top .n{flex:1;font-weight:500;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mb-top .v{font-variant-numeric:tabular-nums;white-space:nowrap}
+.mb-top .chev{color:var(--faint)}
+.mb-sub{display:block;font-size:12.5px;color:var(--muted);margin-top:5px}
+.mb-sub.neg{color:var(--over)}
