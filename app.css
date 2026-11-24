@@ -387,3 +387,13 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .bsel .ok-btn{margin-left:auto;width:64px}
 .kruis-bal{display:flex;justify-content:space-between;gap:10px;width:100%;margin:22px 0 4px;padding:6px 4px;font-size:12px;color:var(--muted);opacity:.75;text-align:left}
 .kruis-bal span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.chk-row{align-items:center;gap:12px}.chk-row input{width:22px;height:22px;flex:none;accent-color:var(--ok)}
+
+/* kleur volgt de gekozen weergave in de vermogensgrafiek */
+#ch-card .chart .ln-real{stroke:var(--cl,var(--ok))}
+#ch-card .chart .ln-fc{stroke:var(--cl,var(--ok))}
+#ch-card .chart .dot-real{fill:var(--cl,var(--ok))}
+#ch-card .chart .dot-fc{stroke:var(--cl,var(--ok))}
+#ch-card .legend i.l-real{background:var(--cl,var(--ok))}
+#ch-card .legend i.l-fcl{border-top-color:var(--cl,var(--ok))}
+#ch-seg button.on{color:var(--cl,var(--ok))}

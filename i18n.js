@@ -363,5 +363,12 @@ window.I18N_EN = [
   // v38: balans kruisposten
   ['Kruisposten {}', 'Own-account transfers {}'], ['uit {} · in {} · balans {}', 'out {} · in {} · balance {}'],
   ['Naar eigen rekeningen', 'To own accounts'], ['Van eigen rekeningen', 'From own accounts'], ['Balans', 'Balance'],
-  ['Kruisposten tellen nergens mee. Een balans die niet op nul uitkomt, betekent dat er per saldo geld op een andere eigen rekening staat (of vandaan kwam).', 'Own-account transfers count nowhere. A balance that isn’t zero means money has, on balance, gone to (or come from) another account of yours.']
+  ['Kruisposten tellen nergens mee. Een balans die niet op nul uitkomt, betekent dat er per saldo geld op een andere eigen rekening staat (of vandaan kwam).', 'Own-account transfers count nowhere. A balance that isn’t zero means money has, on balance, gone to (or come from) another account of yours.'],
+  // v39: overige inkomsten uit de bank
+  ['overige inkomsten', 'other income'],
+  // v40: seizoenspatroon
+  ['Leer van uitgavenpatroon voorgaande jaren', 'Learn from spending pattern of previous years'], ['Geleerd uit {}: {}', 'Learned from {}: {}'],
+  ['Nog geen voorgaand jaar met minstens 6 maanden transacties in de app.', 'No previous year with at least 6 months of transactions in the app yet.'],
+  ['De app kijkt in welke maanden je vorige jaren meer of minder uitgaf aan je maandbudgetten, en neemt dat mee in de prognose en de grafiek. Elk jaar met gegevens maakt de voorspelling beter.', 'The app looks at which months you spent more or less on your monthly budgets in previous years, and uses that in the forecast and the chart. Every year of data makes the prediction better.'],
+  ['Seizoenspatroon wordt meegenomen', 'Seasonal pattern is used'], ['Seizoenspatroon uit', 'Seasonal pattern off']
 ];

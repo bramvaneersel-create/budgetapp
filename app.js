@@ -193,11 +193,38 @@ function periodOf(P, dt) {
   return dt < P[0].start ? -1 : 12;
 }
 
+/* ───────────── seizoenspatroon uit voorgaande jaren ─────────────
+   Per maand: uitgaven aan maandbudgetten ten opzichte van het gemiddelde van dat jaar. Jaren met minder dan
+   6 maanden gegevens tellen niet mee. Meerdere jaren worden gemiddeld (nieuwer zwaarder) en afgezwakt naar 1. */
+let SEASON_CACHE = null;
+function seasonIdx(y) {
+  const ck = `${y}|${S.tx.length}|${Object.keys(S.catMap).length}|${S.dyme.length}`;
+  if (SEASON_CACHE && SEASON_CACHE.ck === ck) return SEASON_CACHE.v;
+  const ids = new Set(S.dyme.map(d => d.id)), years = [], acc = z12(), wsum = z12();
+  for (let yy = y - 1; yy >= y - 4; yy--) {
+    const P = periods(yy), tot = z12(), ys = String(yy);
+    for (const t of S.tx) { if (t.date.slice(0, 4) !== ys && t.date.slice(0, 4) !== String(yy + 1)) continue; const g = txTarget(t); if (!ids.has(g)) continue;
+      const k = txK(t, P, yy); if (k >= 0 && k < 12) tot[k] += t.amt; }
+    const ks = tot.map((v, k) => v > 0 ? k : -1).filter(k => k >= 0); if (ks.length < 6) continue;
+    const mean = sum(ks.map(k => tot[k])) / ks.length, wt = 1 / (y - yy);
+    for (const k of ks) { acc[k] += wt * tot[k] / mean; wsum[k] += wt; }
+    years.push({ y: yy, n: ks.length });
+  }
+  let v = null;
+  if (years.length) {
+    let idx = acc.map((a, k) => wsum[k] ? 1 + 0.75 * (a / wsum[k] - 1) : 1).map(x => Math.min(1.6, Math.max(0.6, x)));
+    const m = sum(idx) / 12; idx = idx.map(x => x / m);
+    v = { idx, years };
+  }
+  SEASON_CACHE = { ck, v }; return v;
+}
 /* ───────────── plan ───────────── */
 function plan() {
   const t = { inkomen: z12(), vast: z12(), sparen: z12(), overboeking: z12(), dd: z12(), dg: z12() };
   for (const l of S.lines) if (!l.rest) for (let k = 0; k < 12; k++) t[l.type][k] += +l.m[k] || 0;
   t.extra = z12(); for (const e of S.extraInc) if (e.k >= 0 && e.k < 12) { t.extra[e.k] += +e.amt || 0; t.inkomen[e.k] += +e.amt || 0; }
+  if (S.tx.some(x => x.bud === '__extra')) { const y = +S.settings.year, P = periods(y);   // ontvangen overige inkomsten uit de bankimport
+    for (const x of S.tx) if (x.bud === '__extra') { const k = txK(x, P, y); if (k >= 0 && k < 12) { t.extra[k] -= x.amt; t.inkomen[k] -= x.amt; } } }
   for (const d of S.dyme) for (let k = 0; k < 12; k++) { t.dd[k] += +d.doel[k] || 0; t.dg[k] += +d.grens[k] || 0; }
   const vp = S.pots.filter(p => p.vrij);
   t.potDoel = sum(vp.map(p => p.doel)); t.potGrens = sum(vp.map(p => +p.grens || +p.doel));
@@ -262,7 +289,7 @@ function aggregate(P) {
   let first = null;
   for (const t of S.tx) {
     const k = txK(t, P, +S.settings.year); if (k < 0 || k > 11) continue;
-    const id = txTarget(t); if (id === '__ignore' || id === '__kruis' || (id && (id.startsWith('pot:') || id.startsWith('line:') || id.startsWith('res:')))) continue;
+    const id = txTarget(t); if (id === '__ignore' || id === '__kruis' || id === '__extra' || (id && (id.startsWith('pot:') || id.startsWith('line:') || id.startsWith('res:')))) continue;
     if (!id || !ids.has(id)) { unmapped[t.cat] = (unmapped[t.cat] || 0) + t.amt; continue; }
     sp[k][id] = (sp[k][id] || 0) + t.amt;
     if (first === null || k < first) first = k;
@@ -337,13 +364,17 @@ function model() {
   const { sp, first, unmapped } = aggregate(P);
   const hasData = first !== null && first <= Math.min(cur, 11);
 
-  // 1. Dyme-budgetten: gewogen gemiddelde (recent zwaarder), naar het doel getrokken bij weinig data
+  // 1. Dyme-budgetten: gewogen gemiddelde (recent zwaarder), naar het doel getrokken bij weinig data.
+  //    Met 'leer van uitgavenpatroon' wordt per maand het seizoenspatroon van voorgaande jaren toegepast (bijv. zomer minder, december meer).
+  const SN = S.settings.learnSeason ? seasonIdx(y) : null, sx = k => SN ? SN.idx[k] : 1;
   const lineF = {};
   for (const d of S.dyme) {
-    const obs = []; if (hasData) for (let k = first; k < Math.min(cur, 12); k++) obs.push(sp[k][d.id] || 0);
+    const obs = []; if (hasData) for (let k = first; k < Math.min(cur, 12); k++) obs.push((sp[k][d.id] || 0) / sx(k));   // zonder seizoenseffect
     let L = null; for (const x of obs) L = L === null ? x : 0.35 * x + 0.65 * L;
     const n = obs.length, w = n / (n + 2), avgDoel = sum(d.doel) / 12;
-    lineF[d.id] = { n, w, L, f: k => n ? w * L + (1 - w) * (+d.doel[k] || 0) : (+d.doel[k] || 0), sd: Math.max(n >= 2 ? stdev(obs) : 0, 0.15 * avgDoel) };
+    const flat = Math.max(...d.doel) <= 1.1 * Math.max(0.01, Math.min(...d.doel));   // vlak doel: seizoen erop toepassen; zelf gevarieerd doel: laten staan
+    const dl = k => (+d.doel[k] || 0) * (flat ? sx(k) : 1);
+    lineF[d.id] = { n, w, L, f: k => n ? w * L * sx(k) + (1 - w) * dl(k) : dl(k), sd: Math.max(n >= 2 ? stdev(obs) : 0, 0.15 * avgDoel) };
   }
   const dyAct = P.map((_, k) => sum(S.dyme.map(d => sp[k][d.id] || 0)));
   const dyExp = z12(), kind = Array(12).fill(''); let sd2 = 0;
@@ -524,14 +555,19 @@ function chartDetail(m) {
 
 /* Verloop-grafiek. Een reeks heeft 13 punten (begin + einde van elke periode): 'path' is werkelijk tot nu en
    daarna prognose, 'base' is de prognose van begin jaar. Wisselen tussen reeksen wordt vloeiend geanimeerd. */
-const CHART_MODES = [['spaar', 'Spaarrekening'], ['samen', 'Samen'], ['beleg', 'Beleggingen']];
+const CHART_MODES = [['spaar', 'Spaarrekening'], ['beleg', 'Beleggingen'], ['samen', 'Samen']];
+// lijnkleur per weergave (licht / donker): spaarrekening groen, beleggingen paars, samen oranje
+const CHART_COL = { spaar: ['#2E7D5B', '#62B898'], beleg: ['#7B5EA7', '#B39DDB'], samen: ['#D9822B', '#F0A55A'] };
+const chartCol = mode => CHART_COL[mode][window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0];
+function mixCol(a, b, f) { const h = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)), x = h(a), y = h(b);
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * f).toString(16).padStart(2, '0')).join(''); }
 const CHART_TITLE = { spaar: 'Verloop spaarrekening', samen: 'Verloop spaarrekening + beleggingen', beleg: 'Verloop beleggingen' };
 function chartSeries(m, mode) {
   const sp = { base: m.basePath, path: m.fcPath, now: m.savingsNow };
   const bl = { base: m.invBase, path: m.invPath, now: m.invNow };
   const add = (a, b) => a.map((v, i) => v + b[i]);
   const r = mode === 'beleg' ? bl : mode === 'samen' ? { base: add(sp.base, bl.base), path: add(sp.path, bl.path), now: sp.now + bl.now } : sp;
-  return { ...r, end: r.path[12] };
+  return { ...r, end: r.path[12], mode };
 }
 function chartSvg(m, c) {
   const W = 340, H = 190, pl = 38, pr = 8, pt = 10, pb = 20, iw = W - pl - pr, ih = H - pt - pb;
@@ -565,13 +601,14 @@ function switchChart(mode) {
   const tt = $('#ch-title'); if (tt) tt.textContent = T(`${CHART_TITLE[mode]} ${m.y}`);
   const ex = $('#ch-exp'); if (ex) ex.textContent = T(`${eur(B.end)} verwacht`);
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) { box.innerHTML = chartSvg(m, B); return; }
+  const card = $('#ch-card'), cA = chartCol(Object.keys(CHART_COL).find(k => k === A.mode) || 'spaar'), cB = chartCol(mode);
+  if (reduce) { box.innerHTML = chartSvg(m, B); if (card) card.style.setProperty('--cl', cB); return; }
   const id = ++chartAnim, t0 = performance.now(), dur = 550, mix = (a, b, f) => a + (b - a) * f;
   const frame = now => {
     if (id !== chartAnim) return;
     const p = Math.min(1, (now - t0) / dur), f = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
     const c = { base: A.base.map((v, i) => mix(v, B.base[i], f)), path: A.path.map((v, i) => mix(v, B.path[i], f)), now: mix(A.now, B.now, f) };
-    c.end = c.path[12]; box.innerHTML = chartSvg(m, c);
+    c.end = c.path[12]; box.innerHTML = chartSvg(m, c); if (card) card.style.setProperty('--cl', mixCol(cA, cB, f));
     if (p < 1) requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
@@ -792,6 +829,7 @@ function renderBudget(m) {
     <div class="card tight">${rows('inkomen', '')}
       <div class="list-btn plain grp"><span>Overige inkomsten</span><span class="r">${eur(pl.extra[pm])}</span></div>
       ${ex.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('')}
+      ${S.tx.filter(x => x.bud === '__extra' && txK(x, m.P, m.y) === pm).map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(-x.amt)}</span></button>`).join('')}
       <button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button></div>
     <div class="section-head out"><span>Uitgaven ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>−${eur(uitTot)}</b></div>
     <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
@@ -820,7 +858,7 @@ function renderSpaar(m) {
     <div class="two-btn" style="margin:16px 0 0"><button class="btn primary" data-act="sheet-saldo">Saldo spaarrekening</button><button class="btn primary" data-act="sheet-assetval">Waarde belegging</button></div></div>`;
   // grafiek met keuze: spaarrekening, samen of beleggingen
   const cm = m.hasInv ? ui.chartMode : 'spaar', cs = chartSeries(m, cm);
-  h += `<div class="card"><div class="row"><div class="lbl" id="ch-title">${CHART_TITLE[cm]} ${m.y}</div><span class="sub" style="font-size:12px" id="ch-exp">${eur(cs.end)} verwacht</span></div>
+  h += `<div class="card" id="ch-card" style="--cl:${chartCol(cm)}"><div class="row"><div class="lbl" id="ch-title">${CHART_TITLE[cm]} ${m.y}</div><span class="sub" style="font-size:12px" id="ch-exp">${eur(cs.end)} verwacht</span></div>
     ${m.hasInv ? `<div class="seg seg-sm" id="ch-seg">${CHART_MODES.map(([k, l]) => `<button data-act="chart-mode" data-mode="${k}" class="${k === cm ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
     <div id="vchart">${chartSvg(m, cs)}</div>
     <div class="legend"><span><i class="l-base"></i>prognose begin jaar</span><span><i class="l-real"></i>werkelijk</span><span><i class="l-fcl"></i>prognose</span></div></div>`;
@@ -887,6 +925,7 @@ function renderInstel(m) {
     <p class="hint">Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.</p>
     <div class="card tight"><div class="list-btn plain grp"><span>Salarisdagen ${m.y}</span><span class="r"></span></div>
       <div class="paydays">${P.map(p => `<span class="${p.start.getDate() !== +st.payday ? 'moved' : ''}">${dLong(p.start)}</span>`).join('')}</div></div>`;
+  h += `<h2>Prognose</h2><div class="card tight"><label class="list-btn plain chk-row"><span>Leer van uitgavenpatroon voorgaande jaren</span><input type="checkbox" id="learn-season"${st.learnSeason ? ' checked' : ''}></label></div>`;
   h += `<h2>Budget</h2><div class="card tight">
     <button class="list-btn" data-act="pick-budget"><span>Budget inlezen (CSV/Excel)</span><span class="r"></span></button>
     <button class="list-btn" data-act="budget-template"><span>Sjabloon downloaden</span><span class="r"></span></button>
@@ -1445,7 +1484,7 @@ function addKruis(t) {
   if (k && !S.kruis.includes(k)) S.kruis.push(k);
 }
 function validTarget(v) {
-  if (v === '__ignore' || v === '__kruis') return true;
+  if (v === '__ignore' || v === '__kruis' || v === '__extra') return true;
   if (v && v.startsWith('pot:')) return S.pots.some(p => 'pot:' + p.id === v);
   if (v && v.startsWith('line:')) return S.lines.some(l => 'line:' + l.id === v);
   if (v && v.startsWith('res:')) return S.moves.some(m => m.kind === 'opname' && 'res:' + m.id === v);
@@ -1568,7 +1607,9 @@ function bankClassify(list) {
   const { own, nb, P, dup } = BPRE, fresh = list, skipped = BPRE.fresh.length - list.length;
   if (!fresh.length) { BPRE = null; closeSheet(); return toast('Geen transacties in deze periode'); }
   const hist = S.tx.filter(x => x.src === 'bank'), ctx = { own, nb, hist, P, y: S.settings.year };
-  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; } t.id = uid(); t.ky = S.settings.year; t.k = suggestK(t, P);
+  for (const t of fresh.sort((a, b) => a.date.localeCompare(b.date))) { const c = classify(t, ctx); t.cat = c.cat || 'Ongecategoriseerd'; t.how = c.how; t.why = c.why; t.target = c.target !== undefined ? c.target : S.catMap[t.cat]; if (!validTarget(t.target)) { t.target = ''; t.how = 'onzeker'; }
+    // inkomsten die nergens aan gekoppeld zijn (bijv. een cadeau van oma) → Overige inkomsten van die maand
+    if (t.amt < 0 && (!t.target || (t.target === '__ignore' && t.how !== 'regel')) && !['Uitgesloten overboekingen', 'Sparen', 'Beleggen'].includes(t.cat)) { t.target = '__extra'; t.how = 'herkend'; t.why = 'overige inkomsten'; } t.id = uid(); t.ky = S.settings.year; t.k = suggestK(t, P);
     const sr = splitRuleFor(t); if (sr) { t.parts = applySplit(sr, t); t.how = 'regel'; t.why = 'vaste splitsing'; t.target = t.parts[0].target; if (t.parts.some(x => !x.target)) t.grp = 'check'; } }
   const pend = (S.pending && S.pending.y === S.settings.year) ? S.pending.items : [];
   BIMP = { items: [...fresh, ...pend].sort((a, b) => b.date.localeCompare(a.date)), dup, skipped, own, open: {} }; BPRE = null;
@@ -1580,7 +1621,8 @@ function targetOptions(sel, allowEmpty) {
   return (allowEmpty ? o('', '— Kies budget —') : '') + `<optgroup label="${T('Maandbudgetten')}">${S.dyme.map(d => o(d.id, d.name)).join('')}</optgroup>` +
     (pots.length ? `<optgroup label="${T('Jaarbudgetten')}">${pots.map(p => o('pot:' + p.id, p.name)).join('')}</optgroup>` : '') +
     [['vast', 'Vaste lasten'], ['overboeking', 'Overboekingen'], ['sparen', 'Naar spaarrekening'], ['inkomen', 'Inkomsten']].map(([ty, lb]) => {
-      const ls = S.lines.filter(l => l.type === ty); return ls.length ? `<optgroup label="${T(lb)}">${ls.map(l => o('line:' + l.id, l.name)).join('')}</optgroup>` : ''; }).join('') +
+      const ls = S.lines.filter(l => l.type === ty); if (ty === 'inkomen') return `<optgroup label="${T(lb)}">${ls.map(l => o('line:' + l.id, l.name)).join('')}${o('__extra', 'Overige inkomsten')}</optgroup>`;
+      return ls.length ? `<optgroup label="${T(lb)}">${ls.map(l => o('line:' + l.id, l.name)).join('')}</optgroup>` : ''; }).join('') +
     (() => { const rs = S.moves.filter(m => m.kind === 'opname' && m.res && (!m.linkTx || 'res:' + m.id === sel));
       return rs.length ? `<optgroup label="${T('Opnames van spaarrekening')}">${rs.map(m => o('res:' + m.id, `Opname ${dShort(fromIso(m.date))} · ${eur(m.amt)}`)).join('')}</optgroup>` : ''; })() +
     o('__kruis', 'Kruispost (eigen rekening)') + o('__ignore', 'Niet meetellen');
@@ -1588,6 +1630,7 @@ function targetOptions(sel, allowEmpty) {
 function targetName(v) {
   if (v === '__ignore') return 'Niet meetellen';
   if (v === '__kruis') return 'Kruispost (eigen rekening)';
+  if (v === '__extra') return 'Overige inkomsten';
   if (v && v.startsWith('pot:')) return S.pots.find(p => 'pot:' + p.id === v)?.name || '?';
   if (v && v.startsWith('line:')) return S.lines.find(l => 'line:' + l.id === v)?.name || '?';
   if (v && v.startsWith('res:')) { const m = S.moves.find(x => 'res:' + x.id === v); return m ? `Opname ${dShort(fromIso(m.date))} · ${eur(m.amt)}` : '?'; }
@@ -2407,6 +2450,7 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
+  if (t.id === 'learn-season') { S.settings.learnSeason = t.checked; save(); render(); return; }
   if (t.id === 'auto-start') { S.settings.startAuto = t.checked; save(); render(); sheetAccounts(); toast(t.checked ? 'Startsaldo wordt automatisch overgenomen' : 'Startsaldo zelf invullen'); return; }
   if (t.dataset.sptg != null && SPED) { SPED.rows[+t.dataset.sptg].target = t.value; return showSplit(); }
   if (t.dataset.spamt != null && SPED) { const v = parseNum(t.value); SPED.rows[+t.dataset.spamt].amt = isNaN(v) ? 0 : r2(Math.abs(v)); return showSplit(); }
