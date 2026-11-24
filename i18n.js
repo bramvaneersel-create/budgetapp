@@ -341,5 +341,27 @@ window.I18N_EN = [
   ['Alles verdeeld', 'Fully allocated'], ['Nog te verdelen', 'Left to allocate'], ['Te veel verdeeld', 'Over-allocated'],
   ['Altijd zo splitsen voor ‘', 'Always split like this for ‘'],
   ['Posten uit je maandplan krijgen dan elke maand hun geplande bedrag. Wat overblijft (bijv. een declaratie) vraagt de app elke keer aan jou.', 'Items from your monthly plan then get their planned amount every month. Whatever is left (e.g. an expense claim) the app asks you each time.'],
-  ['Splitsing opslaan', 'Save split'], ['Splitsing opgeslagen', 'Split saved'], ['vaste splitsing', 'fixed split'], ['Kies budget', 'Choose budget'], ['Regel weg', 'Remove line']
+  ['Splitsing opslaan', 'Save split'], ['Splitsing opgeslagen', 'Split saved'], ['vaste splitsing', 'fixed split'], ['Kies budget', 'Choose budget'], ['Regel weg', 'Remove line'],
+  // v36: opname als reservering
+  ['Opnames van spaarrekening', 'Withdrawals from savings'], ['Opname {} · {}', 'Withdrawal {} · {}'], ['gereserveerde opname', 'reserved withdrawal'],
+  ['Opname gereserveerd', 'Withdrawal reserved'], ['reservering, wordt gekoppeld bij import', 'reservation, linked on import'],
+  ['Je haalt geld van je spaarrekening naar je lopende rekening. Dit is een reservering: hij telt meteen mee in de berekening, en bij het inlezen van je bankexport koppelt de app hem aan de echte overboeking.', 'You move money from savings to your current account. This is a reservation: it counts in the calculations straight away, and when you import your bank export the app links it to the real transfer.'],
+  ['gekoppeld aan transactie', 'linked to transaction'], ['gereserveerd', 'reserved'], ['{} · gereserveerd', '{} · reserved'], ['{} · gekoppeld aan transactie', '{} · linked to transaction'],
+  ['{} · gereserveerd · {}', '{} · reserved · {}'], ['{} · gekoppeld aan transactie · {}', '{} · linked to transaction · {}'],
+  ['Opname niet gevonden', 'Withdrawal not found'],
+  ['De opname van {} op {} staat na een week nog niet in je ingelezen transacties. Verwijderen of handhaven?', 'The withdrawal of {} on {} still isn’t in your imported transactions after a week. Delete or keep?'],
+  ['De opname van {} op {} (', 'The withdrawal of {} on {} ('], [') staat na een week nog niet in je ingelezen transacties. Verwijderen of handhaven?', ') still isn’t in your imported transactions after a week. Delete or keep?'],
+  ['Handhaven', 'Keep'], ['Opname verwijderd', 'Withdrawal deleted'], ['Opname gehandhaafd', 'Withdrawal kept'],
+  // v37: kruisposten
+  ['Toevoegen', 'Add'],
+  ['Kruispost (eigen rekening)', 'Own-account transfer'], ['⇄ Kruispost (eigen rekening)', '⇄ Own-account transfer'], ['kruispost', 'own-account transfer'],
+  ['Kruisposten (eigen rekeningen)', 'Own-account transfers'], ['Kruisposten', 'Own-account transfers'], ['Kruispost', 'Own-account transfer'],
+  ['Overboekingen tussen je eigen rekeningen. Ze tellen nergens mee: niet in je budgetten en niet in het saldo. Transacties met deze tegenrekening of naam herkent de app voortaan zelf.', 'Transfers between your own accounts. They count nowhere: not in your budgets and not in the balance. The app recognises transactions with this account or name from now on.'],
+  ['Nog geen kruisposten', 'No own-account transfers yet'], ['Naam of IBAN toevoegen', 'Add name or IBAN'], ['bijv. BG van Eersel of NL00INGB0001234567', 'e.g. BG van Eersel or NL00INGB0001234567'],
+  ['Tip: in het importscherm markeer je een transactie met ⇄ in één tik als kruispost; de app onthoudt dan de tegenrekening.', 'Tip: in the import screen, tap ⇄ to mark a transaction as an own-account transfer in one go; the app then remembers the account.'],
+  ['{} kruisposten gemarkeerd', '{} own-account transfers marked'], ['Kruispost gemarkeerd', 'Own-account transfer marked'],
+  // v38: balans kruisposten
+  ['Kruisposten {}', 'Own-account transfers {}'], ['uit {} · in {} · balans {}', 'out {} · in {} · balance {}'],
+  ['Naar eigen rekeningen', 'To own accounts'], ['Van eigen rekeningen', 'From own accounts'], ['Balans', 'Balance'],
+  ['Kruisposten tellen nergens mee. Een balans die niet op nul uitkomt, betekent dat er per saldo geld op een andere eigen rekening staat (of vandaan kwam).', 'Own-account transfers count nowhere. A balance that isn’t zero means money has, on balance, gone to (or come from) another account of yours.']
 ];
