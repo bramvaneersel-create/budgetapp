@@ -403,5 +403,7 @@ window.I18N_EN = [
   // v48: overige uitgaven
   ['Overige uitgaven', 'Other expenses'], ['Overige uitgaven toevoegen', 'Add other expense'], ['+ Overige uitgaven toevoegen', '+ Add other expense'],
   ['bijv. investering of reparatie', 'e.g. investment or repair'],
-  ['Telt mee als uitgave in die maand en gaat af van wat er naar je spaarrekening gaat.', 'Counts as an expense in that month and is deducted from what goes to your savings.']
+  ['Telt mee als uitgave in die maand en gaat af van wat er naar je spaarrekening gaat.', 'Counts as an expense in that month and is deducted from what goes to your savings.'],
+  // v49: overige uitgaven automatisch
+  ['{} · {} · van spaarrekening', '{} · {} · from savings'], ['{} · {} · van lopende rekening', '{} · {} · from current account']
 ];

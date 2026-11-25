@@ -848,7 +848,14 @@ function renderBudget(m) {
   const ex = S.extraInc.filter(e => e.k === pm);
   const uitTot = pt.vast[pm] + pt.overboeking[pm] + pt.sparen[pm] + pl.ovUit[pm];
   const exU = S.extraUit.filter(e => e.k === pm), txU = S.tx.filter(x => x.bud === '__uit' && txK(x, m.P, m.y) === pm);
-  const ovUitHtml = `<button class="list-btn grp ex-toggle" data-act="uit-toggle"><span>Overige uitgaven <span class="chev">${ui.uitOpen ? '▾' : '▸'}</span></span><span class="r">−${eur(pl.ovUit[pm])}</span></button>` + (!ui.uitOpen ? '' :
+  // automatisch: uitgaven van spaarposten (bijv. Belegging/Capex) en gekochte beleggingen in deze maand
+  const autoU = S.moves.filter(x => { if (!(x.kind === 'koop' || (x.kind === 'uitgave' && S.pots.some(p => p.id === x.pot && !p.vrij && !p.sys)))) return false;
+    const dt = fromIso(x.date); if (dt.getFullYear() !== m.y) return false; const k = x.k != null && x.ky === m.y ? x.k : periodOf(m.P, dt); return Math.max(0, Math.min(11, k)) === pm; });
+  const autoTot = sum(autoU.map(x => x.amt));
+  const autoRow = x => { const p = S.pots.find(c => c.id === x.pot), a = S.assets.find(c => c.id === x.asset), lop = x.kind === 'koop' && x.src === 'lopend';
+    return `<button class="list-btn sub-row" ${x.txId ? `data-act="edit-tx" data-id="${x.txId}"` : x.kind === 'uitgave' ? `data-act="edit-move" data-id="${x.id}"` : `data-act="del-move" data-id="${x.id}"`}><span><span translate="no">${esc(x.kind === 'koop' ? `Gekocht: ${a?.name || ''}` : (x.note || p?.name || ''))}</span><small class="paid src">${dShort(fromIso(x.date))} · ${x.kind === 'koop' ? 'Beleggingen' : esc(p?.name || '')} · ${lop ? 'van lopende rekening' : 'van spaarrekening'}</small></span><span class="r">${eur2(x.amt)}</span></button>`; };
+  const ovUitHtml = `<button class="list-btn grp ex-toggle" data-act="uit-toggle"><span>Overige uitgaven <span class="chev">${ui.uitOpen ? '▾' : '▸'}</span></span><span class="r">−${eur(pl.ovUit[pm] + autoTot)}</span></button>` + (!ui.uitOpen ? '' :
+    autoU.sort((a, b) => a.date.localeCompare(b.date)).map(autoRow).join('') +
     exU.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-kind="uit" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('') +
     txU.map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(x.amt)}</span></button>`).join('') +
     `<button class="list-btn sub-row add-row" data-act="edit-extra" data-kind="uit" data-id=""><span>+ Overige uitgaven toevoegen</span><span class="r"></span></button>`);

@@ -410,3 +410,8 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .txr.linked .lnk{opacity:1;color:var(--muted)}
 .btn.btn-ic{display:flex;align-items:center;justify-content:center;gap:8px}
 .txr .t{flex:1}
+/* bedragen altijd op één regel, rechts uitgelijnd; tekst links mag doorlopen */
+.kv{align-items:baseline;gap:14px}
+.kv>span:first-child{flex:1;min-width:0}
+.kv>b,.kv>span:last-child:not(:first-child){flex:none;white-space:nowrap;text-align:right}
+.paid.src{color:var(--muted)}
