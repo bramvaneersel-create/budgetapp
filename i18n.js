@@ -370,5 +370,11 @@ window.I18N_EN = [
   ['Leer van uitgavenpatroon voorgaande jaren', 'Learn from spending pattern of previous years'], ['Geleerd uit {}: {}', 'Learned from {}: {}'],
   ['Nog geen voorgaand jaar met minstens 6 maanden transacties in de app.', 'No previous year with at least 6 months of transactions in the app yet.'],
   ['De app kijkt in welke maanden je vorige jaren meer of minder uitgaf aan je maandbudgetten, en neemt dat mee in de prognose en de grafiek. Elk jaar met gegevens maakt de voorspelling beter.', 'The app looks at which months you spent more or less on your monthly budgets in previous years, and uses that in the forecast and the chart. Every year of data makes the prediction better.'],
-  ['Seizoenspatroon wordt meegenomen', 'Seasonal pattern is used'], ['Seizoenspatroon uit', 'Seasonal pattern off']
+  ['Seizoenspatroon wordt meegenomen', 'Seasonal pattern is used'], ['Seizoenspatroon uit', 'Seasonal pattern off'],
+  // v43: uitgave en terugbetaling koppelen
+  ['Koppelen aan uitgave', 'Link to expense'], ['Koppelen aan terugbetaling', 'Link to refund'], ['🔗 Koppelen aan uitgave', '🔗 Link to expense'], ['🔗 Koppelen aan terugbetaling', '🔗 Link to refund'],
+  ['Koppeling verwijderen', 'Remove link'], ['Kies de uitgave die met deze inkomsten (deels) is terugbetaald.', 'Choose the expense this income (partly) paid back.'],
+  ['Kies de terugbetaling die bij deze uitgave hoort.', 'Choose the refund that belongs to this expense.'],
+  ['Geen uitgaven in dit budget om aan te koppelen.', 'No expenses in this budget to link to.'], ['Geen terugbetalingen in dit budget om aan te koppelen.', 'No refunds in this budget to link to.'],
+  ['netto {}', 'net {}'], ['Gekoppeld', 'Linked'], ['Koppeling verwijderd', 'Link removed']
 ];

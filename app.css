@@ -397,3 +397,12 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 #ch-card .legend i.l-real{background:var(--cl,var(--ok))}
 #ch-card .legend i.l-fcl{border-top-color:var(--cl,var(--ok))}
 #ch-seg button.on{color:var(--cl,var(--ok))}
+/* gekoppelde uitgave + terugbetaling */
+.lgrp{border-top:1px solid var(--line)}
+.lgrp:first-child{border-top:0}
+.lgrp .txr{border-top:0}
+.txr.linked{position:relative;padding-left:30px;padding-top:4px}
+.txr.linked .lnk{position:absolute;left:4px;top:50%;transform:translateY(-50%);font-size:13px;opacity:.7}
+.txr.linked .t b{font-weight:500}
+.lnet{text-align:right;font-size:12px;color:var(--muted);padding:0 22px 8px 0;font-variant-numeric:tabular-nums}
+.ex-toggle .chev{font-size:12px;color:var(--muted);margin-left:4px}.ex-toggle{width:100%;text-align:left}

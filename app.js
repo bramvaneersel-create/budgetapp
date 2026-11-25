@@ -827,10 +827,10 @@ function renderBudget(m) {
   h += `<h2>Maandplan</h2><div class="month-chips">${MON.map((n, i) => `<button data-act="plan-month" data-k="${i}" class="${i === pm ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div class="section-head in"><span>Inkomsten ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>+${eur(pt.inkomen[pm])}</b></div>
     <div class="card tight">${rows('inkomen', '')}
-      <div class="list-btn plain grp"><span>Overige inkomsten</span><span class="r">${eur(pl.extra[pm])}</span></div>
-      ${ex.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('')}
-      ${S.tx.filter(x => x.bud === '__extra' && txK(x, m.P, m.y) === pm).map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(-x.amt)}</span></button>`).join('')}
-      <button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button></div>
+      <button class="list-btn grp ex-toggle" data-act="extra-toggle"><span>Overige inkomsten <span class="chev">${ui.extraOpen ? '▾' : '▸'}</span></span><span class="r">${eur(pl.extra[pm])}</span></button>
+      ${!ui.extraOpen ? '' : ex.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('')}
+      ${!ui.extraOpen ? '' : S.tx.filter(x => x.bud === '__extra' && txK(x, m.P, m.y) === pm).map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(-x.amt)}</span></button>`).join('')}
+      ${ui.extraOpen ? `<button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button>` : ''}</div>
     <div class="section-head out"><span>Uitgaven ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>−${eur(uitTot)}</b></div>
     <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
     <p class="hint">Tik op een post voor de transacties en om de bedragen aan te passen.</p>
@@ -1083,11 +1083,39 @@ function sheetBudgetDetail(kind, id, k = null) {
     h += `<div class="card"><div class="lbl">${verb} · ${dShort(p.start)} – ${dShort(p.end)}</div><div class="big" style="margin:6px 0 4px">${eur(v)}</div>
       ${d ? `${bar(Math.max(0, v), d, kind === 'dyme' ? +b.grens[k] || d : d)}<div class="sub" style="margin-top:6px">${kind === 'line' ? 'gepland' : 'doel'} ${eur(d)} · ${inc ? (v >= d - 0.5 ? 'ontvangen' : `nog ${eur(d - v)} te ontvangen`) : (d - v >= 0 ? `nog ${eur(d - v)}` : `${eur(v - d)} te veel`)}</div>` : ''}</div>`;
   }
-  h += `<h2>Transacties (${list.length})</h2><div class="card tight">` + (list.length ? list.map(t =>
-    `<div class="txr"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`).join('')
+  // gekoppelde terugbetalingen direct onder de uitgave, iets ingesprongen met een link-icoon
+  const keyOf = t => t.tid ? 'tx:' + t.tid : t.mid ? 'mv:' + t.mid : null;
+  const byKey = new Map(list.map(t => [keyOf(t), t])), kids = new Map();
+  for (const t of list) { const lg = linkOf(keyOf(t)); if (lg && lg !== keyOf(t) && byKey.has(lg)) { if (!kids.has(lg)) kids.set(lg, []); kids.get(lg).push(t); } }
+  const isKid = t => { const lg = linkOf(keyOf(t)); return lg && lg !== keyOf(t) && byKey.has(lg); };
+  const row = (t, cls = '') => `<div class="txr${cls}"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}>${cls ? '<span class="lnk" aria-hidden="true">🔗</span>' : ''}<span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`;
+  const rows = list.filter(t => !isKid(t)).map(t => { const ks = (kids.get(keyOf(t)) || []).sort((a, c) => a.date.localeCompare(c.date));
+    return ks.length ? `<div class="lgrp">${row(t)}${ks.map(k => row(k, ' linked')).join('')}<div class="lnet">netto ${eur2(t.amt + sum(ks.map(k => k.amt)))}</div></div>` : row(t); });
+  h += `<h2>Transacties (${list.length})</h2><div class="card tight">` + (list.length ? rows.join('')
     : `<div class="empty">${kind === 'pot' ? 'Nog geen uitgaven geboekt.' : 'Nog geen transacties — lees een bank- of Dyme-export in.'}</div>`) + `</div>`;
   h += `<button class="btn" data-act="${kind === 'dyme' ? 'edit-dyme' : kind === 'line' ? 'edit-line' : 'edit-pot'}" data-id="${id}">${kind === 'line' ? 'Post aanpassen' : 'Budget aanpassen'}</button>`;
   openSheet(b.name, h, { kind: 'detail' });
+}
+/* Uitgave en terugbetaling aan elkaar koppelen (binnen hetzelfde budget). Sleutel: 'tx:<id>' of 'mv:<id>'; de uitgave is de kop. */
+function linkObj(key) { if (!key) return null; const [k, id] = [key.slice(0, 2), key.slice(3)]; return k === 'tx' ? S.tx.find(x => x.id === id) : S.moves.find(x => x.id === id); }
+function linkOf(key) { const o = linkObj(key); return o ? o.lg || null : null; }
+function itemTarget(key) { const o = linkObj(key); if (!o) return null; return key.startsWith('tx:') ? txTarget(o) : o.kind === 'uitgave' ? 'pot:' + o.pot : null; }
+function sheetLinkPick(key) {
+  const o = linkObj(key), tg = itemTarget(key); if (!o || !tg) return;
+  const kind = tg.startsWith('pot:') ? 'pot' : tg.startsWith('line:') ? 'line' : 'dyme', id = tg.replace(/^(pot|line):/, '');
+  const b = kind === 'dyme' ? S.dyme.find(d => d.id === id) : kind === 'line' ? S.lines.find(l => l.id === id) : S.pots.find(p => p.id === id); if (!b) return;
+  const y = S.settings.year, items = detailItems(kind, id, b, periods(y), y), me = items.find(t => (t.tid ? 'tx:' + t.tid : 'mv:' + t.mid) === key);
+  const sign = me ? Math.sign(me.amt) : Math.sign(o.amt);
+  const cands = items.filter(t => Math.sign(t.amt) === -sign && (t.tid ? 'tx:' + t.tid : 'mv:' + t.mid) !== key).sort((a, c) => c.date.localeCompare(a.date));
+  openSheet(sign < 0 ? 'Koppelen aan uitgave' : 'Koppelen aan terugbetaling', `<p class="hint">${sign < 0 ? 'Kies de uitgave die met deze inkomsten (deels) is terugbetaald.' : 'Kies de terugbetaling die bij deze uitgave hoort.'}</p>
+    <div class="card tight">${cands.length ? cands.map(t => { const ck = t.tid ? 'tx:' + t.tid : 'mv:' + t.mid; return `<div class="txr" data-act="link-do" data-a="${key}" data-b="${ck}"><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`; }).join('')
+      : `<div class="empty">${sign < 0 ? 'Geen uitgaven in dit budget om aan te koppelen.' : 'Geen terugbetalingen in dit budget om aan te koppelen.'}</div>`}</div>`, { kind: 'linkpick' });
+}
+function linkBtn(key) {
+  const o = linkObj(key); if (!o || !itemTarget(key)) return '';
+  const linked = o.lg || S.tx.some(x => x.lg === key) || S.moves.some(x => x.lg === key);
+  return `<button class="btn" data-act="link-pick" data-k="${key}">🔗 ${o.amt < 0 ? 'Koppelen aan uitgave' : 'Koppelen aan terugbetaling'}</button>` +
+    (linked ? `<button class="btn" data-act="link-del" data-k="${key}">Koppeling verwijderen</button>` : '');
 }
 function reopenDetail() { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, d.k); else closeSheet(); }
 
@@ -1876,6 +1904,7 @@ function sheetTx(id) {
     ${k ? `<label class="chk"><input type="checkbox" id="tx-learn"> <span>Altijd zo indelen voor ‘<span translate="no">${esc(k)}</span>’</span></label>` : ''}
     <button class="btn primary" data-act="save-tx" data-id="${t.id}">Opslaan</button>
     ${txTarget(t) !== '__kruis' ? `<button class="btn" data-act="tx-kruis" data-id="${t.id}">⇄ Kruispost (eigen rekening)</button>` : ''}
+    ${linkBtn('tx:' + t.id)}
     <button class="btn" data-act="split-tx" data-id="${t.id}">${t.gid ? 'Splitsing aanpassen' : 'Splitsen'}</button>
     <button class="btn danger" data-act="del-tx" data-id="${t.id}">${t.gid ? 'Hele transactie verwijderen' : 'Verwijderen'}</button>`, { kind: 'tx' });
 }
@@ -1888,6 +1917,7 @@ function sheetMoveEdit(id) {
     <label class="fld"><span>Datum</span><input type="date" id="mv-date" value="${x.date}"></label>
     <label class="fld"><span>Budget</span><select id="mv-pot">${pots.map(p => `<option value="${p.id}"${p.id === x.pot ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
     <button class="btn primary" data-act="save-move-edit" data-id="${x.id}">Opslaan</button>
+    ${linkBtn('mv:' + x.id)}
     <button class="btn danger" data-act="del-move-do" data-id="${x.id}">Verwijderen</button>`, { kind: 'mv' });
 }
 // Balans van kruisposten dit jaar: wat er naar eigen rekeningen ging en terugkwam (hoort ongeveer op nul uit te komen)
@@ -2241,6 +2271,13 @@ const ACT = {
   'bank-sim-do': () => bankSimDone(true),
   'bank-sim-skip': () => bankSimDone(false),
   'edit-tx': el => sheetTx(el.dataset.id),
+  'extra-toggle': () => { ui.extraOpen = !ui.extraOpen; render(); },
+  'link-pick': el => sheetLinkPick(el.dataset.k),
+  'link-do': el => { const a = el.dataset.a, b = el.dataset.b, oa = linkObj(a), ob = linkObj(b); if (!oa || !ob) return;
+    const [head, kid] = oa.amt > 0 ? [a, b] : [b, a], oh = linkObj(head), ok = linkObj(kid);
+    delete oh.lg; ok.lg = head; save(); render(); reopenDetail(); toast('Gekoppeld'); },
+  'link-del': el => { const k = el.dataset.k, o = linkObj(k); if (o) delete o.lg;
+    for (const x of [...S.tx, ...S.moves]) if (x.lg === k) delete x.lg; save(); render(); reopenDetail(); toast('Koppeling verwijderd'); },
   'edit-move': el => sheetMoveEdit(el.dataset.id),
   'detail-scope': el => { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, el.dataset.k === '' ? null : +el.dataset.k); },
   'line-detail': el => sheetBudgetDetail(el.dataset.kind || 'line', el.dataset.id, +el.dataset.k),
