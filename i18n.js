@@ -381,5 +381,23 @@ window.I18N_EN = [
   ['Slimme functies', 'Smart features'], ['Nieuw jaar en prognose', 'New year and forecast'], ['Budget van vorig jaar overnemen', 'Copy budget from previous year'],
   ['Budget {} inlezen (CSV/Excel)', 'Import budget {} (CSV/Excel)'],
   ['De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget wordt overgenomen; lees daarna je nieuwe budget in of pas het aan.', 'The end-of-year forecast becomes the provisional starting balance; adjust it once you know the real balance. Your budget is copied; then import your new budget or adjust it.'],
-  ['De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Het nieuwe jaar begint met een leeg budget; lees daarna je budget in.', 'The end-of-year forecast becomes the provisional starting balance; adjust it once you know the real balance. The new year starts with an empty budget; then import your budget.']
+  ['De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Het nieuwe jaar begint met een leeg budget; lees daarna je budget in.', 'The end-of-year forecast becomes the provisional starting balance; adjust it once you know the real balance. The new year starts with an empty budget; then import your budget.'],
+  // v47: zonder Dyme, alle mutaties per maand
+  ['Nog geen transacties voor deze periode', 'No transactions for this period yet'],
+  ['Geen transacties — aangenomen als maandbudget ({}).', 'No transactions — assumed to equal the monthly budget ({}).'],
+  ['{} categorieën nog niet gekoppeld ({}).', '{} categories not linked yet ({}).'], ['{} categorie nog niet gekoppeld ({}).', '{} category not linked yet ({}).'],
+  ['Categorieën: {} (aanpassen via Instellingen → Categorieën koppelen).', 'Categories: {} (change via Settings → Link categories).'],
+  ['Koppel elke categorie aan een maandbudget. Kies ‘Negeren’ voor inkomsten, overboekingen of uitgaven die je in de app als jaarbudget bijhoudt (zoals vakantie).', 'Link each category to a monthly budget. Choose ‘Ignore’ for income, transfers or spending you track in the app as a yearly budget (such as holidays).'],
+  ['Categorieën negeren', 'Ignored categories'], ['Je huidige budget wordt vervangen. Transacties, koppelingen en mutaties blijven bewaard.', 'Your current budget will be replaced. Transactions, links and entries are kept.'],
+  ['Alle ingelezen transacties worden verwijderd. Budgetten, koppelingen en mutaties blijven.', 'All imported transactions will be deleted. Budgets, links and entries are kept.'],
+  ['1. Maandbudgetten.', '1. Monthly budgets.'],
+  ['Daarnaast berekent de app je gemiddelde vrije uitgaven per maand (maandbudgetten en jaarbudgetten samen) en trekt dat door naar het einde van het jaar. Wijkt dat af van de optelsom per budget, dan schuift de prognose die kant op — hoe meer maanden data, hoe zwaarder (tot maximaal de helft).', 'The app also calculates your average discretionary spending per month (monthly and yearly budgets together) and extends it to the end of the year. If that differs from the sum per budget, the forecast shifts that way — the more months of data, the more weight (up to half).'],
+  ['Per periode: vrije ruimte − maandbudgetten − jaarbudgetten die je van je lopende rekening betaalt. Een overschot blijft op je lopende rekening staan en vangt latere tekorten op. Wordt het saldo negatief, dan rekent de app met een opname van je spaarrekening.', 'Per period: spending room − monthly budgets − yearly budgets paid from your current account. A surplus stays in your current account and covers later shortfalls. If the balance turns negative, the app assumes a withdrawal from your savings.'],
+  ['Nog geen transacties — lees een bankexport in.', 'No transactions yet — import a bank export.'], ['Al eerder ingelezen t/m', 'Already imported up to'],
+  ['Alleen transacties in budgetjaar {} tellen mee. Wat al eerder in de app staat, sla je over — anders tellen die uitgaven dubbel.', 'Only transactions in budget year {} count. Skip what is already in the app — otherwise those expenses count twice.'],
+  ['Dit bestand is geen bankexport. Download bij ING je af- en bijschrijvingen als CSV.', 'This file is not a bank export. Download your ING transactions as CSV.'],
+  ['Categorieën', 'Categories'], ['Categorieën die niet meetellen', 'Categories that do not count'], ['Maandbudget', 'Monthly budget'],
+  ['Alle mutaties {} bekijken', 'View all entries {}'], ['{} boekingen · {} – {}', '{} entries · {} – {}'],
+  ['Af', 'Out'], ['Bij', 'In'], ['Nieuwste eerst', 'Newest first'], ['Oudste eerst', 'Oldest first'], ['Hoogste bedrag', 'Highest amount'], ['Laagste bedrag', 'Lowest amount'],
+  ['Opname van spaarrekening', 'Withdrawal from savings'], ['Nog geen boekingen in deze maand', 'No entries in this month yet']
 ];
