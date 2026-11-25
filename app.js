@@ -72,6 +72,7 @@ function defaultState() {
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
     pots: [ { id: 'gez', name: 'Gezamenlijke rekening (extra)', doel: 0, grens: 0, acct: 'spaar', vrij: false },
             { id: 'cap', name: 'Belegging/Capex', doel: 0, grens: 0, acct: 'spaar', vrij: false }, { ...KAS } ],
+    extraUit: [],  // overige uitgaven: { id, k, name, amt } (bijv. investeringen; alles wat niet in een budget past)
     extraInc: [],  // overige inkomsten: { id, k (maand 0–11), name, amt }
     moves: [], tx: [], catMap: {}, lastImport: null, demo: false
   };
@@ -81,6 +82,7 @@ function normalize(s) {
   const o = Object.assign(d, s, { settings: Object.assign(d.settings, s.settings) });
   if (!o.pots.some(p => p.sys === 'kas')) o.pots.push({ ...KAS });
   if (!Array.isArray(o.extraInc)) o.extraInc = [];
+  if (!Array.isArray(o.extraUit)) o.extraUit = [];
   if (!o.yearSet || typeof o.yearSet !== 'object') o.yearSet = {};
   if (!o.budgets || typeof o.budgets !== 'object') o.budgets = {};
   if (!o.startPre) { o.baseline = null; for (const v of Object.values(o.yearSet)) delete v.baseline; o.startPre = true; }   // v33: startsaldo nu vóór de januaristorting
@@ -131,12 +133,12 @@ const YEAR_KEYS = ['startSavings', 'interest', 'invStart', 'invReturn', 'startAu
 const clone = o => JSON.parse(JSON.stringify(o));
 function swapBudget(from, to) {
   S.budgets = S.budgets || {};
-  S.budgets[from] = clone({ lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc });
+  S.budgets[from] = clone({ lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc, extraUit: S.extraUit });
   let b = S.budgets[to];
   if (b) delete S.budgets[to];
-  else if (S.settings.copyPrevBudget && S.budgets[to - 1]) b = { ...clone(S.budgets[to - 1]), extraInc: [] };
-  else b = { lines: [], dyme: [], pots: S.pots.filter(p => p.sys).map(clone), extraInc: [] };
-  S.lines = b.lines; S.dyme = b.dyme; S.pots = b.pots; S.extraInc = b.extraInc || [];
+  else if (S.settings.copyPrevBudget && S.budgets[to - 1]) b = { ...clone(S.budgets[to - 1]), extraInc: [], extraUit: [] };
+  else b = { lines: [], dyme: [], pots: S.pots.filter(p => p.sys).map(clone), extraInc: [], extraUit: [] };
+  S.lines = b.lines; S.dyme = b.dyme; S.pots = b.pots; S.extraInc = b.extraInc || []; S.extraUit = b.extraUit || [];
 }
 function switchYear(ny) {
   swapBudget(S.settings.year, ny);
@@ -152,13 +154,13 @@ function switchYear(ny) {
    Rekent het vorige jaar door met de instellingen van dat jaar, zonder iets op te slaan. */
 function prevYearStart() {
   const y = S.settings.year; if (!S.yearSet[y - 1]) return null;
-  const st0 = S.settings, ys0 = S.yearSet, arr0 = { lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc }, bud0 = S.budgets || (S.budgets = {});
+  const st0 = S.settings, ys0 = S.yearSet, arr0 = { lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc, extraUit: S.extraUit }, bud0 = S.budgets || (S.budgets = {});
   const keep = JSON.stringify({ settings: st0, yearSet: ys0, baseline: S.baseline, budgets: bud0, arr: arr0 });
   const restore = () => { const o = JSON.parse(keep);   // terugzetten in dezelfde objecten, zodat bestaande verwijzingen kloppen
     for (const k of Object.keys(st0)) delete st0[k]; Object.assign(st0, o.settings); S.settings = st0;
     for (const k of Object.keys(ys0)) delete ys0[k]; Object.assign(ys0, o.yearSet); S.yearSet = ys0; S.baseline = o.baseline;
     for (const k of Object.keys(bud0)) delete bud0[k]; Object.assign(bud0, o.budgets); S.budgets = bud0;
-    for (const k of ['lines', 'dyme', 'pots', 'extraInc']) { arr0[k].length = 0; arr0[k].push(...o.arr[k]); S[k] = arr0[k]; } };
+    for (const k of ['lines', 'dyme', 'pots', 'extraInc', 'extraUit']) { arr0[k].length = 0; arr0[k].push(...o.arr[k]); S[k] = arr0[k]; } };
   AUTO_BUSY = true;
   try { switchYear(y - 1); const e = model().eind; restore(); const dep = plan().sparen[0] || 0; return { end: r2(e), dep: r2(dep), val: r2(e) }; }
   catch (err) { restore(); return null; }
@@ -243,6 +245,10 @@ function plan() {
   t.extra = z12(); for (const e of S.extraInc) if (e.k >= 0 && e.k < 12) { t.extra[e.k] += +e.amt || 0; t.inkomen[e.k] += +e.amt || 0; }
   if (S.tx.some(x => x.bud === '__extra')) { const y = +S.settings.year, P = periods(y);   // ontvangen overige inkomsten uit de bankimport
     for (const x of S.tx) if (x.bud === '__extra') { const k = txK(x, P, y); if (k >= 0 && k < 12) { t.extra[k] -= x.amt; t.inkomen[k] -= x.amt; } } }
+  // overige uitgaven (zelf ingevoerd of uit de bankimport): gaan af van de vrije ruimte van die maand
+  t.ovUit = z12(); for (const e of S.extraUit) if (e.k >= 0 && e.k < 12) t.ovUit[e.k] += +e.amt || 0;
+  if (S.tx.some(x => x.bud === '__uit')) { const y = +S.settings.year, P = periods(y);
+    for (const x of S.tx) if (x.bud === '__uit') { const k = txK(x, P, y); if (k >= 0 && k < 12) t.ovUit[k] += x.amt; } }
   for (const d of S.dyme) for (let k = 0; k < 12; k++) { t.dd[k] += +d.doel[k] || 0; t.dg[k] += +d.grens[k] || 0; }
   const vp = S.pots.filter(p => p.vrij);
   t.potDoel = sum(vp.map(p => p.doel)); t.potGrens = sum(vp.map(p => +p.grens || +p.doel));
@@ -253,8 +259,8 @@ function plan() {
   const lopPot = sum(vp.filter(p => p.acct === 'lopend').map(p => p.doel)) / 12;
   t.keepM = t.dd.map(v => v + lopPot);
   t.restM = z12(); t.restLine = S.lines.find(l => l.rest && l.type === 'sparen') || null;
-  if (t.restLine) for (let k = 0; k < 12; k++) { t.restM[k] = r2(t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - t.keepM[k]); t.sparen[k] += t.restM[k]; }
-  t.vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k]);       // vrije ruimte per maand
+  if (t.restLine) for (let k = 0; k < 12; k++) { t.restM[k] = r2(t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - t.ovUit[k] - t.keepM[k]); t.sparen[k] += t.restM[k]; }
+  t.vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k] - t.ovUit[k]);       // vrije ruimte per maand
   t.lopDoel = sum(vp.filter(p => p.acct === 'lopend').map(p => p.doel));
   t.jaarDoel = sum(t.dd) + t.potDoel; t.jaarGrens = sum(t.dg) + t.potGrens;
   return t;
@@ -307,7 +313,7 @@ function aggregate(P) {
   let first = null;
   for (const t of S.tx) {
     const k = txK(t, P, +S.settings.year); if (k < 0 || k > 11) continue;
-    const id = txTarget(t); if (id === '__ignore' || id === '__kruis' || id === '__extra' || (id && (id.startsWith('pot:') || id.startsWith('line:') || id.startsWith('res:')))) continue;
+    const id = txTarget(t); if (id === '__ignore' || id === '__kruis' || id === '__extra' || id === '__uit' || (id && (id.startsWith('pot:') || id.startsWith('line:') || id.startsWith('res:')))) continue;
     if (!id || !ids.has(id)) { unmapped[t.cat] = (unmapped[t.cat] || 0) + t.amt; continue; }
     sp[k][id] = (sp[k][id] || 0) + t.amt;
     if (first === null || k < first) first = k;
@@ -840,7 +846,12 @@ function renderBudget(m) {
   const rows = (t, sign) => S.lines.filter(l => l.type === t).map(l => `<button class="list-btn sub-row" data-act="line-detail" data-kind="line" data-id="${l.id}" data-k="${pm}"><span>${esc(l.name)}${l.rest ? '<span class="tag">rest</span>' : ''}${paid(l)}</span><span class="r${amtOf(l) < 0 ? ' neg' : ''}">${sign}${eur(amtOf(l))}</span></button>`).join('');
   const grp = (t, label) => S.lines.some(l => l.type === t) ? `<div class="list-btn plain grp"><span>${label}</span><span class="r">−${eur(pt[t][pm])}</span></div>` + rows(t, '') : '';
   const ex = S.extraInc.filter(e => e.k === pm);
-  const uitTot = pt.vast[pm] + pt.overboeking[pm] + pt.sparen[pm];
+  const uitTot = pt.vast[pm] + pt.overboeking[pm] + pt.sparen[pm] + pl.ovUit[pm];
+  const exU = S.extraUit.filter(e => e.k === pm), txU = S.tx.filter(x => x.bud === '__uit' && txK(x, m.P, m.y) === pm);
+  const ovUitHtml = `<button class="list-btn grp ex-toggle" data-act="uit-toggle"><span>Overige uitgaven <span class="chev">${ui.uitOpen ? '▾' : '▸'}</span></span><span class="r">−${eur(pl.ovUit[pm])}</span></button>` + (!ui.uitOpen ? '' :
+    exU.map(e => `<button class="list-btn sub-row" data-act="edit-extra" data-kind="uit" data-id="${e.id}"><span>${esc(e.name)}</span><span class="r">${eur(e.amt)}</span></button>`).join('') +
+    txU.map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(x.amt)}</span></button>`).join('') +
+    `<button class="list-btn sub-row add-row" data-act="edit-extra" data-kind="uit" data-id=""><span>+ Overige uitgaven toevoegen</span><span class="r"></span></button>`);
   const onder = pt.vrij[pm] - pl.dd[pm] - pl.lopDoel / 12;
   h += `<h2>Maandplan</h2><div class="month-chips">${MON.map((n, i) => `<button data-act="plan-month" data-k="${i}" class="${i === pm ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div class="section-head in"><span>Inkomsten ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>+${eur(pt.inkomen[pm])}</b></div>
@@ -850,7 +861,7 @@ function renderBudget(m) {
       ${!ui.extraOpen ? '' : S.tx.filter(x => x.bud === '__extra' && txK(x, m.P, m.y) === pm).map(x => `<button class="list-btn sub-row" data-act="edit-tx" data-id="${x.id}"><span><span translate="no">${esc(x.desc)}</span><small class="paid">${dShort(fromIso(x.date))}${userNote(x) ? ` · <span translate="no">“${esc(userNote(x))}”</span>` : ''}</small></span><span class="r">${eur2(-x.amt)}</span></button>`).join('')}
       ${ui.extraOpen ? `<button class="list-btn sub-row add-row" data-act="edit-extra" data-id=""><span>+ Overige inkomsten toevoegen</span><span class="r"></span></button>` : ''}</div>
     <div class="section-head out"><span>Uitgaven ${MONF[pm]}${past ? ' <small class="tag">werkelijk</small>' : ''}</span><b>−${eur(uitTot)}</b></div>
-    <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}</div>
+    <div class="card tight">${grp('vast', 'Vaste lasten')}${grp('overboeking', 'Overboekingen')}${grp('sparen', 'Naar spaarrekening')}${ovUitHtml}</div>
     <p class="hint">Tik op een post voor de transacties en om de bedragen aan te passen.</p>
     <button class="btn" data-act="edit-line" data-id="">Post toevoegen</button>
     <button class="btn" data-act="month-tx" data-k="${pm}">Alle mutaties ${MONF[pm]} bekijken</button>`;
@@ -1275,15 +1286,17 @@ function sheetPot(id) {
     ${id ? `<button class="btn danger" data-act="del-pot" data-id="${p.id}">Verwijderen</button>` : ''}`}`);
 }
 
-function sheetExtra(id) {
-  const e = S.extraInc.find(x => x.id === id) || { id: '', k: ui.planMonth ?? Math.min(Math.max(model().cur, 0), 11), name: '', amt: '' };
-  openSheet(id ? 'Overige inkomsten' : 'Overige inkomsten toevoegen', `
-    <label class="fld"><span>Omschrijving</span><input id="e-name" value="${esc(e.name)}" placeholder="bijv. teruggave belasting" maxlength="60"></label>
+function sheetExtra(id, kind) {
+  const uit = kind === 'uit', L = uit ? S.extraUit : S.extraInc;
+  const e = L.find(x => x.id === id) || { id: '', k: ui.planMonth ?? Math.min(Math.max(model().cur, 0), 11), name: '', amt: '' };
+  const ttl = uit ? 'Overige uitgaven' : 'Overige inkomsten';
+  openSheet(id ? ttl : ttl + ' toevoegen', `
+    <label class="fld"><span>Omschrijving</span><input id="e-name" value="${esc(e.name)}" placeholder="${uit ? 'bijv. investering of reparatie' : 'bijv. teruggave belasting'}" maxlength="60"></label>
     <div class="fld-row"><label class="fld"><span>Maand</span><select id="e-k">${MONF.map((n, i) => `<option value="${i}"${i === e.k ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
     <label class="fld"><span>Bedrag (netto)</span><input id="e-amt" inputmode="decimal" value="${e.amt === '' ? '' : numIn(e.amt)}" placeholder="€ 0"></label></div>
-    <p class="hint">Telt mee als inkomen in die maand. Via de restpost gaat het automatisch naar je spaarrekening.</p>
-    <button class="btn primary" data-act="save-extra" data-id="${e.id}">Opslaan</button>
-    ${id ? `<button class="btn danger" data-act="del-extra" data-id="${e.id}">Verwijderen</button>` : ''}`);
+    <p class="hint">${uit ? 'Telt mee als uitgave in die maand en gaat af van wat er naar je spaarrekening gaat.' : 'Telt mee als inkomen in die maand. Via de restpost gaat het automatisch naar je spaarrekening.'}</p>
+    <button class="btn primary" data-act="save-extra" data-kind="${uit ? 'uit' : ''}" data-id="${e.id}">Opslaan</button>
+    ${id ? `<button class="btn danger" data-act="del-extra" data-kind="${uit ? 'uit' : ''}" data-id="${e.id}">Verwijderen</button>` : ''}`);
 }
 function sheetSavPot(id) {
   const p = S.savPots.find(x => x.id === id) || { id: '', name: '', line: null, post: null };
@@ -1556,7 +1569,7 @@ function addKruis(t) {
   if (k && !S.kruis.includes(k)) S.kruis.push(k);
 }
 function validTarget(v) {
-  if (v === '__ignore' || v === '__kruis' || v === '__extra') return true;
+  if (v === '__ignore' || v === '__kruis' || v === '__extra' || v === '__uit') return true;
   if (v && v.startsWith('pot:')) return S.pots.some(p => 'pot:' + p.id === v);
   if (v && v.startsWith('line:')) return S.lines.some(l => 'line:' + l.id === v);
   if (v && v.startsWith('res:')) return S.moves.some(m => m.kind === 'opname' && 'res:' + m.id === v);
@@ -1697,12 +1710,13 @@ function targetOptions(sel, allowEmpty) {
       return ls.length ? `<optgroup label="${T(lb)}">${ls.map(l => o('line:' + l.id, l.name)).join('')}</optgroup>` : ''; }).join('') +
     (() => { const rs = S.moves.filter(m => m.kind === 'opname' && m.res && (!m.linkTx || 'res:' + m.id === sel));
       return rs.length ? `<optgroup label="${T('Opnames van spaarrekening')}">${rs.map(m => o('res:' + m.id, `Opname ${dShort(fromIso(m.date))} · ${eur(m.amt)}`)).join('')}</optgroup>` : ''; })() +
-    o('__kruis', 'Kruispost (eigen rekening)') + o('__ignore', 'Niet meetellen');
+    o('__uit', 'Overige uitgaven') + o('__kruis', 'Kruispost (eigen rekening)') + o('__ignore', 'Niet meetellen');
 }
 function targetName(v) {
   if (v === '__ignore') return 'Niet meetellen';
   if (v === '__kruis') return 'Kruispost (eigen rekening)';
   if (v === '__extra') return 'Overige inkomsten';
+  if (v === '__uit') return 'Overige uitgaven';
   if (v && v.startsWith('pot:')) return S.pots.find(p => 'pot:' + p.id === v)?.name || '?';
   if (v && v.startsWith('line:')) return S.lines.find(l => 'line:' + l.id === v)?.name || '?';
   if (v && v.startsWith('res:')) { const m = S.moves.find(x => 'res:' + x.id === v); return m ? `Opname ${dShort(fromIso(m.date))} · ${eur(m.amt)}` : '?'; }
@@ -2436,15 +2450,17 @@ const ACT = {
   },
   'del-line': el => { S.lines = S.lines.filter(l => l.id !== el.dataset.id); save(); closeSheet(); render(); },
   'edit-dyme': el => sheetDyme(el.dataset.id),
-  'edit-extra': el => sheetExtra(el.dataset.id),
+  'edit-extra': el => sheetExtra(el.dataset.id, el.dataset.kind),
   'save-extra': el => {
-    const name = val('#e-name').trim() || 'Overige inkomsten', amt = parseNum(val('#e-amt')), k = +val('#e-k');
+    const uit = el.dataset.kind === 'uit', L = uit ? S.extraUit : S.extraInc;
+    const name = val('#e-name').trim() || (uit ? 'Overige uitgaven' : 'Overige inkomsten'), amt = parseNum(val('#e-amt')), k = +val('#e-k');
     if (isNaN(amt)) return toast('Vul een bedrag in');
-    const e = S.extraInc.find(x => x.id === el.dataset.id);
-    if (e) Object.assign(e, { name, amt: r2(amt), k }); else S.extraInc.push({ id: uid(), name, amt: r2(amt), k });
+    const e = L.find(x => x.id === el.dataset.id);
+    if (e) Object.assign(e, { name, amt: r2(Math.abs(amt)), k }); else L.push({ id: uid(), name, amt: r2(Math.abs(amt)), k });
     ui.planMonth = k; save(); closeSheet(); render(); toast('Opgeslagen');
   },
-  'del-extra': el => { S.extraInc = S.extraInc.filter(x => x.id !== el.dataset.id); save(); closeSheet(); render(); },
+  'del-extra': el => { if (el.dataset.kind === 'uit') S.extraUit = S.extraUit.filter(x => x.id !== el.dataset.id); else S.extraInc = S.extraInc.filter(x => x.id !== el.dataset.id); save(); closeSheet(); render(); },
+  'uit-toggle': () => { ui.uitOpen = !ui.uitOpen; render(); },
   'dyme-spread': () => {
     const d = parseNum(val('#d-doel-j')), g = parseNum(val('#d-grens-j'));
     if (!isNaN(d)) $$('[data-grid="doel"]').forEach(i => { i.value = numIn(d / 12); });

@@ -399,5 +399,9 @@ window.I18N_EN = [
   ['Categorieën', 'Categories'], ['Categorieën die niet meetellen', 'Categories that do not count'], ['Maandbudget', 'Monthly budget'],
   ['Alle mutaties {} bekijken', 'View all entries {}'], ['{} boekingen · {} – {}', '{} entries · {} – {}'],
   ['Af', 'Out'], ['Bij', 'In'], ['Nieuwste eerst', 'Newest first'], ['Oudste eerst', 'Oldest first'], ['Hoogste bedrag', 'Highest amount'], ['Laagste bedrag', 'Lowest amount'],
-  ['Opname van spaarrekening', 'Withdrawal from savings'], ['Nog geen boekingen in deze maand', 'No entries in this month yet']
+  ['Opname van spaarrekening', 'Withdrawal from savings'], ['Nog geen boekingen in deze maand', 'No entries in this month yet'],
+  // v48: overige uitgaven
+  ['Overige uitgaven', 'Other expenses'], ['Overige uitgaven toevoegen', 'Add other expense'], ['+ Overige uitgaven toevoegen', '+ Add other expense'],
+  ['bijv. investering of reparatie', 'e.g. investment or repair'],
+  ['Telt mee als uitgave in die maand en gaat af van wat er naar je spaarrekening gaat.', 'Counts as an expense in that month and is deducted from what goes to your savings.']
 ];
