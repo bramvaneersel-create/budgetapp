@@ -66,6 +66,7 @@ function defaultState() {
     settings: { year: today().getFullYear(), payday: 15, startSavings: 0, interest: 2, invStart: 0, invReturn: 5, invLine: '', lang: LANG_CUR },
     assets: defaultAssets(),  // beleggingen en andere bezittingen
     startPre: true,
+    budgets: {},  // budgetten van de andere jaren
     yearSet: {},  // per budgetjaar bewaard: startsaldi, rente, rendement, prognose begin jaar
     lines: [],   // inkomen / vast / sparen / overboeking, bedrag per maand
     dyme: [],    // budgetten die via Dyme worden bijgehouden: doel/grens per maand
@@ -81,6 +82,7 @@ function normalize(s) {
   if (!o.pots.some(p => p.sys === 'kas')) o.pots.push({ ...KAS });
   if (!Array.isArray(o.extraInc)) o.extraInc = [];
   if (!o.yearSet || typeof o.yearSet !== 'object') o.yearSet = {};
+  if (!o.budgets || typeof o.budgets !== 'object') o.budgets = {};
   if (!o.startPre) { o.baseline = null; for (const v of Object.values(o.yearSet)) delete v.baseline; o.startPre = true; }   // v33: startsaldo nu vóór de januaristorting
   if (!Array.isArray(s.assets)) {  // overstap vanaf versie 22: één belegging in de instellingen
     o.assets = defaultAssets(); const b = o.assets[0], st = o.settings;
@@ -124,7 +126,20 @@ let AUTO_BUSY = false;
 function save() { if (AUTO_BUSY) return; try { if (S.moves && S.moves.some(m => m.kind === 'kas' && m.saldo != null)) recomputeKas(); syncAutoStart(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Opslaan mislukt — maak een back-up'); } }
 /* Wisselen van budgetjaar: de instellingen die per jaar verschillen worden apart per jaar bewaard. */
 const YEAR_KEYS = ['startSavings', 'interest', 'invStart', 'invReturn', 'startAuto'];
+/* Budget per jaar: het actieve jaar staat in S.lines/S.dyme/S.pots/S.extraInc, de andere jaren in S.budgets.
+   Een jaar zonder eigen budget begint leeg, of met een kopie van het vorige jaar als dat in Instellingen aan staat. */
+const clone = o => JSON.parse(JSON.stringify(o));
+function swapBudget(from, to) {
+  S.budgets = S.budgets || {};
+  S.budgets[from] = clone({ lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc });
+  let b = S.budgets[to];
+  if (b) delete S.budgets[to];
+  else if (S.settings.copyPrevBudget && S.budgets[to - 1]) b = { ...clone(S.budgets[to - 1]), extraInc: [] };
+  else b = { lines: [], dyme: [], pots: S.pots.filter(p => p.sys).map(clone), extraInc: [] };
+  S.lines = b.lines; S.dyme = b.dyme; S.pots = b.pots; S.extraInc = b.extraInc || [];
+}
 function switchYear(ny) {
+  swapBudget(S.settings.year, ny);
   const st = S.settings, cur = {}; for (const k of YEAR_KEYS) cur[k] = st[k];
   if (S.baseline && S.baseline.year === st.year) cur.baseline = S.baseline;
   S.yearSet[st.year] = cur;
@@ -137,10 +152,13 @@ function switchYear(ny) {
    Rekent het vorige jaar door met de instellingen van dat jaar, zonder iets op te slaan. */
 function prevYearStart() {
   const y = S.settings.year; if (!S.yearSet[y - 1]) return null;
-  const st0 = S.settings, ys0 = S.yearSet, keep = JSON.stringify({ settings: st0, yearSet: ys0, baseline: S.baseline });
+  const st0 = S.settings, ys0 = S.yearSet, arr0 = { lines: S.lines, dyme: S.dyme, pots: S.pots, extraInc: S.extraInc }, bud0 = S.budgets || (S.budgets = {});
+  const keep = JSON.stringify({ settings: st0, yearSet: ys0, baseline: S.baseline, budgets: bud0, arr: arr0 });
   const restore = () => { const o = JSON.parse(keep);   // terugzetten in dezelfde objecten, zodat bestaande verwijzingen kloppen
     for (const k of Object.keys(st0)) delete st0[k]; Object.assign(st0, o.settings); S.settings = st0;
-    for (const k of Object.keys(ys0)) delete ys0[k]; Object.assign(ys0, o.yearSet); S.yearSet = ys0; S.baseline = o.baseline; };
+    for (const k of Object.keys(ys0)) delete ys0[k]; Object.assign(ys0, o.yearSet); S.yearSet = ys0; S.baseline = o.baseline;
+    for (const k of Object.keys(bud0)) delete bud0[k]; Object.assign(bud0, o.budgets); S.budgets = bud0;
+    for (const k of ['lines', 'dyme', 'pots', 'extraInc']) { arr0[k].length = 0; arr0[k].push(...o.arr[k]); S[k] = arr0[k]; } };
   AUTO_BUSY = true;
   try { switchYear(y - 1); const e = model().eind; restore(); const dep = plan().sparen[0] || 0; return { end: r2(e), dep: r2(dep), val: r2(e) }; }
   catch (err) { restore(); return null; }
@@ -925,9 +943,9 @@ function renderInstel(m) {
     <p class="hint">Valt de salarisdag in het weekend of op een feestdag, dan geldt de werkdag ervoor.</p>
     <div class="card tight"><div class="list-btn plain grp"><span>Salarisdagen ${m.y}</span><span class="r"></span></div>
       <div class="paydays">${P.map(p => `<span class="${p.start.getDate() !== +st.payday ? 'moved' : ''}">${dLong(p.start)}</span>`).join('')}</div></div>`;
-  h += `<h2>Prognose</h2><div class="card tight"><label class="list-btn plain chk-row"><span>Leer van uitgavenpatroon voorgaande jaren</span><input type="checkbox" id="learn-season"${st.learnSeason ? ' checked' : ''}></label></div>`;
+  h += `<h2>Slimme functies</h2><div class="card tight"><button class="list-btn" data-act="sheet-smart"><span>Nieuw jaar en prognose</span><span class="r"></span></button></div>`;
   h += `<h2>Budget</h2><div class="card tight">
-    <button class="list-btn" data-act="pick-budget"><span>Budget inlezen (CSV/Excel)</span><span class="r"></span></button>
+    <button class="list-btn" data-act="pick-budget"><span>Budget ${st.year} inlezen (CSV/Excel)</span><span class="r"></span></button>
     <button class="list-btn" data-act="budget-template"><span>Sjabloon downloaden</span><span class="r"></span></button>
     <button class="list-btn" data-act="budget-export"><span>Huidig budget exporteren</span><span class="r"></span></button>
     <button class="list-btn" data-act="rebase"><span>Prognose begin jaar opnieuw vastzetten</span><span class="r"></span></button>
@@ -1088,7 +1106,7 @@ function sheetBudgetDetail(kind, id, k = null) {
   const byKey = new Map(list.map(t => [keyOf(t), t])), kids = new Map();
   for (const t of list) { const lg = linkOf(keyOf(t)); if (lg && lg !== keyOf(t) && byKey.has(lg)) { if (!kids.has(lg)) kids.set(lg, []); kids.get(lg).push(t); } }
   const isKid = t => { const lg = linkOf(keyOf(t)); return lg && lg !== keyOf(t) && byKey.has(lg); };
-  const row = (t, cls = '') => `<div class="txr${cls}"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}>${cls ? '<span class="lnk" aria-hidden="true">🔗</span>' : ''}<span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`;
+  const row = (t, cls = '') => `<div class="txr${cls}"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}>${cls ? `<span class="lnk">${LINK_SVG}</span>` : ''}<span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`;
   const rows = list.filter(t => !isKid(t)).map(t => { const ks = (kids.get(keyOf(t)) || []).sort((a, c) => a.date.localeCompare(c.date));
     return ks.length ? `<div class="lgrp">${row(t)}${ks.map(k => row(k, ' linked')).join('')}<div class="lnet">netto ${eur2(t.amt + sum(ks.map(k => k.amt)))}</div></div>` : row(t); });
   h += `<h2>Transacties (${list.length})</h2><div class="card tight">` + (list.length ? rows.join('')
@@ -1096,6 +1114,7 @@ function sheetBudgetDetail(kind, id, k = null) {
   h += `<button class="btn" data-act="${kind === 'dyme' ? 'edit-dyme' : kind === 'line' ? 'edit-line' : 'edit-pot'}" data-id="${id}">${kind === 'line' ? 'Post aanpassen' : 'Budget aanpassen'}</button>`;
   openSheet(b.name, h, { kind: 'detail' });
 }
+const LINK_SVG = '<svg class="ic-link" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></svg>';
 /* Uitgave en terugbetaling aan elkaar koppelen (binnen hetzelfde budget). Sleutel: 'tx:<id>' of 'mv:<id>'; de uitgave is de kop. */
 function linkObj(key) { if (!key) return null; const [k, id] = [key.slice(0, 2), key.slice(3)]; return k === 'tx' ? S.tx.find(x => x.id === id) : S.moves.find(x => x.id === id); }
 function linkOf(key) { const o = linkObj(key); return o ? o.lg || null : null; }
@@ -1114,7 +1133,7 @@ function sheetLinkPick(key) {
 function linkBtn(key) {
   const o = linkObj(key); if (!o || !itemTarget(key)) return '';
   const linked = o.lg || S.tx.some(x => x.lg === key) || S.moves.some(x => x.lg === key);
-  return `<button class="btn" data-act="link-pick" data-k="${key}">🔗 ${o.amt < 0 ? 'Koppelen aan uitgave' : 'Koppelen aan terugbetaling'}</button>` +
+  return `<button class="btn btn-ic" data-act="link-pick" data-k="${key}">${LINK_SVG}<span>${o.amt < 0 ? 'Koppelen aan uitgave' : 'Koppelen aan terugbetaling'}</span></button>` +
     (linked ? `<button class="btn" data-act="link-del" data-k="${key}">Koppeling verwijderen</button>` : '');
 }
 function reopenDetail() { const d = ui.detail; if (d) sheetBudgetDetail(d.kind, d.id, d.k); else closeSheet(); }
@@ -1927,6 +1946,12 @@ function kruisBalHtml(m) {
   const uit = sum(L.filter(t => t.amt > 0).map(t => t.amt)), inn = sum(L.filter(t => t.amt < 0).map(t => -t.amt)), bal = inn - uit;
   return `<button class="kruis-bal" data-act="sheet-kruislist"><span>Kruisposten ${m.y}</span><span>uit ${eur(uit)} · in ${eur(inn)} · balans ${bal < 0 ? '−' + eur(-bal) : '+' + eur(bal)}</span></button>`;
 }
+function sheetSmart() {
+  const st = S.settings;
+  openSheet('Nieuw jaar en prognose', `<div class="card tight">
+    <label class="list-btn plain chk-row"><span>Budget van vorig jaar overnemen</span><input type="checkbox" id="copy-prev"${st.copyPrevBudget ? ' checked' : ''}></label>
+    <label class="list-btn plain chk-row"><span>Leer van uitgavenpatroon voorgaande jaren</span><input type="checkbox" id="learn-season"${st.learnSeason ? ' checked' : ''}></label></div>`, { kind: 'smart' });
+}
 function sheetKruisList() {
   const y = S.settings.year, L = kruisList(y), uit = sum(L.filter(t => t.amt > 0).map(t => t.amt)), inn = sum(L.filter(t => t.amt < 0).map(t => -t.amt));
   openSheet(`Kruisposten ${y}`, `<div class="card"><div class="kv"><span>Naar eigen rekeningen</span><b>−${eur2(uit)}</b></div><div class="kv"><span>Van eigen rekeningen</span><b>+${eur2(inn)}</b></div>
@@ -2067,7 +2092,7 @@ async function onBudgetFile(file) {
     const hasRest = lines.some(l => l.rest);
     if (hasRest) for (let k = 0; k < 12; k++) t.sparen[k] += t.inkomen[k] - t.vast[k] - t.sparen[k] - t.overboeking[k] - (sum(dyme.map(d => d.doel[k])) + lopPotDoel / 12);
     const vrij = t.inkomen.map((v, k) => v - t.vast[k] - t.sparen[k] - t.overboeking[k]);
-    const suggestY = today().getMonth() >= 9 ? today().getFullYear() + 1 : today().getFullYear();
+    const fy = String(file.name || '').match(/20\d{2}/), suggestY = fy ? +fy[0] : S.settings.year;   // jaar uit de bestandsnaam, anders het gekozen budgetjaar
     openSheet('Budget inlezen', `<div class="card tight">
       <div class="kv"><span>Inkomen${extra.length ? ` (incl. ${extra.length}× overige inkomsten)` : ''}</span><b>${eur(sum(t.inkomen))}</b></div>
       <div class="kv"><span>Vaste lasten</span><b>${eur(sum(t.vast))}</b></div>
@@ -2249,6 +2274,7 @@ const ACT = {
   'tx-kruis': el => { const t = S.tx.find(x => x.id === el.dataset.id); if (!t) return; addKruis(t); t.bud = '__kruis'; txMove(t); save(); render(); reopenDetail(); toast('Kruispost gemarkeerd'); },
   'sheet-kruis': () => sheetKruis(),
   'sheet-kruislist': () => sheetKruisList(),
+  'sheet-smart': () => sheetSmart(),
   'del-kruis': el => { S.kruis = (S.kruis || []).filter(k => k !== el.dataset.k); save(); render(); sheetKruis(); },
   'add-kruis': () => { const v = val('#kruis-new').trim(); if (!v) return; const ib = v.replace(/\s/g, '').toUpperCase();
     const k = /^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(ib) ? 'iban:' + ib : 'n:' + normTxt(v); S.kruis = S.kruis || []; if (!S.kruis.includes(k)) S.kruis.push(k); save(); render(); sheetKruis(); },
@@ -2430,11 +2456,14 @@ const ACT = {
   'budget-do': () => {
     const { lines, dyme, pots, extra, ignore } = IMP.budget, yr = parseInt(val('#b-year'), 10);
     if (S.demo) { S = defaultState(); }
-    // bestaande ids behouden (op naam), zodat mutaties en Dyme-koppelingen blijven kloppen
+    if (yr > 2000 && yr < 2100 && yr !== S.settings.year) switchYear(yr);   // budget hoort bij het gekozen jaar
+    // bestaande ids behouden (op naam, over alle jaren), zodat mutaties, transacties en Dyme-koppelingen blijven kloppen
     const byName = (arr, n) => arr.find(x => normName(x.name) === normName(n));
-    for (const d of dyme) { const ex = byName(S.dyme, d.name); if (ex) d.id = ex.id; }
+    const other = Object.values(S.budgets || {});
+    for (const d of dyme) { const ex = byName([...S.dyme, ...other.flatMap(b => b.dyme || [])], d.name); if (ex) d.id = ex.id; }
+    for (const l of lines) { const ex = [...S.lines, ...other.flatMap(b => b.lines || [])].find(x => x.type === l.type && normName(x.name) === normName(l.name)); if (ex) l.id = ex.id; }
     const keepPots = S.pots.filter(p => p.sys || S.moves.some(m => m.pot === p.id));
-    for (const p of pots) { const ex = byName(S.pots, p.name); if (ex && !ex.sys) p.id = ex.id; }
+    for (const p of pots) { const ex = byName([...S.pots, ...other.flatMap(b => b.pots || [])], p.name); if (ex && !ex.sys) p.id = ex.id; }
     for (const p of keepPots) if (!pots.some(x => x.id === p.id)) pots.push(p);
     for (const p of [{ id: 'gez', name: 'Gezamenlijke rekening (extra)' }, { id: 'cap', name: 'Belegging/Capex' }]) if (!pots.some(x => normName(x.name) === normName(p.name))) pots.push({ ...p, doel: 0, grens: 0, acct: 'spaar', vrij: false });
     pots.sort((a, b) => (a.sys ? 1 : 0) - (b.sys ? 1 : 0) || (b.vrij - a.vrij));
@@ -2460,7 +2489,7 @@ const ACT = {
   'clear-tx-do': () => { S.tx = []; S.txGone = []; S.moves = S.moves.filter(m => !m.txId); S.lastImport = null; save(); closeSheet(); render(); toast('Transacties gewist'); },
   rebase: () => confirmSheet('Prognose begin jaar vastzetten?', 'De lijn "prognose begin jaar" in de grafiek wordt vervangen door je huidige plan.', 'rebase-do'),
   'rebase-do': () => { S.baseline = null; model(); save(); closeSheet(); render(); toast('Vastgezet'); },
-  'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget blijft staan; lees daarna je nieuwe budget in of pas het aan.', 'new-year-do'),
+  'new-year': () => confirmSheet(`Boekjaar ${S.settings.year + 1} starten?`, S.settings.copyPrevBudget ? 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget wordt overgenomen; lees daarna je nieuwe budget in of pas het aan.' : 'De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Het nieuwe jaar begint met een leeg budget; lees daarna je budget in.', 'new-year-do'),
   'new-year-do': () => { const m = model(), ny = S.settings.year + 1, had = !!S.yearSet[ny]; switchYear(ny);
     if (!had) S.settings.startSavings = r2(m.eind);
     for (const x of m.assets) if (x.a.start[ny] == null) x.a.start[ny] = r2(x.end); save(); closeSheet(); render(); toast(`Boekjaar ${S.settings.year}`); }
@@ -2487,6 +2516,7 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'f-sdate') { updateSaldoPreview(); return; }
   if (t.dataset.impmap) { IMP.map[t.dataset.impmap] = +t.value; sheetDymeMap(); return; }
+  if (t.id === 'copy-prev') { S.settings.copyPrevBudget = t.checked; save(); render(); return; }
   if (t.id === 'learn-season') { S.settings.learnSeason = t.checked; save(); render(); return; }
   if (t.id === 'auto-start') { S.settings.startAuto = t.checked; save(); render(); sheetAccounts(); toast(t.checked ? 'Startsaldo wordt automatisch overgenomen' : 'Startsaldo zelf invullen'); return; }
   if (t.dataset.sptg != null && SPED) { SPED.rows[+t.dataset.sptg].target = t.value; return showSplit(); }

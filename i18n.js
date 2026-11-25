@@ -376,5 +376,10 @@ window.I18N_EN = [
   ['Koppeling verwijderen', 'Remove link'], ['Kies de uitgave die met deze inkomsten (deels) is terugbetaald.', 'Choose the expense this income (partly) paid back.'],
   ['Kies de terugbetaling die bij deze uitgave hoort.', 'Choose the refund that belongs to this expense.'],
   ['Geen uitgaven in dit budget om aan te koppelen.', 'No expenses in this budget to link to.'], ['Geen terugbetalingen in dit budget om aan te koppelen.', 'No refunds in this budget to link to.'],
-  ['netto {}', 'net {}'], ['Gekoppeld', 'Linked'], ['Koppeling verwijderd', 'Link removed']
+  ['netto {}', 'net {}'], ['Gekoppeld', 'Linked'], ['Koppeling verwijderd', 'Link removed'],
+  // v46: budget per jaar
+  ['Slimme functies', 'Smart features'], ['Nieuw jaar en prognose', 'New year and forecast'], ['Budget van vorig jaar overnemen', 'Copy budget from previous year'],
+  ['Budget {} inlezen (CSV/Excel)', 'Import budget {} (CSV/Excel)'],
+  ['De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Je budget wordt overgenomen; lees daarna je nieuwe budget in of pas het aan.', 'The end-of-year forecast becomes the provisional starting balance; adjust it once you know the real balance. Your budget is copied; then import your new budget or adjust it.'],
+  ['De prognose voor einde jaar wordt het voorlopige startsaldo; pas het aan zodra je het echte saldo weet. Het nieuwe jaar begint met een leeg budget; lees daarna je budget in.', 'The end-of-year forecast becomes the provisional starting balance; adjust it once you know the real balance. The new year starts with an empty budget; then import your budget.']
 ];
