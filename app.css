@@ -415,3 +415,12 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .kv>span:first-child{flex:1;min-width:0}
 .kv>b,.kv>span:last-child:not(:first-child){flex:none;white-space:nowrap;text-align:right}
 .paid.src{color:var(--muted)}
+/* maandkeuze bovenaan Deze periode */
+.per-pick{position:relative;display:inline-flex;align-items:center;gap:4px;font-size:14px;font-weight:600;color:var(--ok);padding:4px 8px;border-radius:999px;background:var(--card2)}
+.per-pick svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.per-pick select{position:absolute;inset:0;opacity:0;width:100%;height:100%;font-size:16px}
+/* vegen tussen maanden */
+@keyframes swl{from{transform:translateX(24px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes swr{from{transform:translateX(-24px);opacity:.4}to{transform:none;opacity:1}}
+#plan-swipe.swipe-l>*:not(.month-chips){animation:swl .22s ease-out}
+#plan-swipe.swipe-r>*:not(.month-chips){animation:swr .22s ease-out}

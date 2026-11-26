@@ -159,7 +159,7 @@ window.I18N_EN = [
   ['Kasverschil ontstaat vanzelf wanneer je het echte saldo van je spaarrekening invoert.', 'A cash difference arises automatically when you enter the actual balance of your savings account.'],
   ['Betaald van', 'Paid from'], ['Lopende rekening', 'Current account'], ['Hoort bij vrije ruimte', 'Part of spending room'],
   ['Ja — jaarbudget binnen je € per maand', 'Yes — yearly budget within your € per month'], ['Nee — aparte spaarpost', 'No — separate savings item'],
-  ['Met een doel telt het resterende bedrag mee in de prognose: verspreid over het jaar bij de vrije ruimte, in december bij een aparte spaarpost (zoals Huis). Laat leeg om alleen bij te houden.', 'With a goal, the remaining amount counts in the forecast: spread over the year for spending room, in December for a separate savings item (such as House). Leave empty to only track it.'],
+  ['Met een doel telt het resterende bedrag mee in de prognose: verspreid over het jaar bij de vrije ruimte, in December bij een aparte spaarpost (zoals Huis). Laat leeg om alleen bij te houden.', 'With a goal, the remaining amount counts in the forecast: spread over the year for spending room, in December for a separate savings item (such as House). Leave empty to only track it.'],
   ['Overige inkomsten toevoegen', 'Add other income'], ['Omschrijving', 'Description'], ['bijv. teruggave belasting', 'e.g. tax refund'],
   ['Maand', 'Month'], ['Bedrag (netto)', 'Amount (net)'],
   ['Telt mee als inkomen in die maand. Via de restpost gaat het automatisch naar je spaarrekening.', 'Counts as income in that month. Through the remainder item it goes to your savings automatically.'],
@@ -332,9 +332,9 @@ window.I18N_EN = [
   ['(als uitgaven zo blijven)', '(if spending stays like this)'], ['Geplande storting {}', 'Planned deposit {}'],
   ['Wat je deze periode niet uitgeeft van je maandbudgetten, gaat mee naar je spaarrekening.', 'What you don’t spend from your monthly budgets this period goes to your savings.'],
   // v33: startsaldo vóór januaristorting
-  ['Saldo 1 januari {} (vóór storting)', 'Balance 1 January {} (before deposit)'], ['Startsaldo 1 januari', 'Starting balance 1 January'],
-  ['Stortingen jan–dec', 'Deposits Jan–Dec'], ['({}, vóór storting)', '({}, before deposit)'],
-  ['Stand einde {}: {}. De storting van januari komt er vanzelf bij. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {}. The January deposit is added automatically. Updates if you still add balances or transactions in {}.'],
+  ['Saldo 1 Januari {} (vóór storting)', 'Balance 1 January {} (before deposit)'], ['Startsaldo 1 Januari', 'Starting balance 1 January'],
+  ['Stortingen Jan–Dec', 'Deposits Jan–Dec'], ['({}, vóór storting)', '({}, before deposit)'],
+  ['Stand einde {}: {}. De storting van Januari komt er vanzelf bij. Werkt mee als je in {} nog saldi of transacties toevoegt.', 'Balance end of {}: {}. The January deposit is added automatically. Updates if you still add balances or transactions in {}.'],
   // v34: splitsen
   ['Splitsen', 'Split'], ['Splitsing aanpassen', 'Edit split'], ['Hele transactie verwijderen', 'Delete whole transaction'],
   ['Deel van gesplitste transactie', 'Part of split transaction'], ['gepland {}', 'planned {}'], ['+ Regel toevoegen', '+ Add line'],
@@ -405,5 +405,12 @@ window.I18N_EN = [
   ['bijv. investering of reparatie', 'e.g. investment or repair'],
   ['Telt mee als uitgave in die maand en gaat af van wat er naar je spaarrekening gaat.', 'Counts as an expense in that month and is deducted from what goes to your savings.'],
   // v49: overige uitgaven automatisch
-  ['{} · {} · van spaarrekening', '{} · {} · from savings'], ['{} · {} · van lopende rekening', '{} · {} · from current account']
+  ['{} · {} · van spaarrekening', '{} · {} · from savings'], ['{} · {} · van lopende rekening', '{} · {} · from current account'],
+  // v50: elke transactie beoordelen, aparte lijst 'geleerd'
+  ['Nog {} te beoordelen · {} naar je budgetten.', '{} left to review · {} to your budgets.'], ['Alles beoordeeld · {} naar je budgetten.', 'All reviewed · {} to your budgets.'],
+  ['Geleerd van eerdere keuzes ({})', 'Learned from earlier choices ({})'],
+  ['Beoordeel elke transactie: kies een budget en een maand en tik op ✓. Alleen afgehandelde transacties worden opgeslagen; de rest blijft bewaard tot je verder gaat.', 'Review every transaction: choose a budget and a month and tap ✓. Only reviewed transactions are saved; the rest is kept until you continue.'],
+  ['Opslaan · {} afgehandeld, {} later', 'Save · {} reviewed, {} later'], ['Opslaan · alle {} transacties', 'Save · all {} transactions'],
+  // v51: maandkeuze
+  ['{} (nu)', '{} (now)'], ['Andere maand', 'Other month']
 ];
