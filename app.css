@@ -427,3 +427,7 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 .lp-head{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--ok);padding:10px 0 2px}
 .lp-head.muted{color:var(--muted)}
 .txr.lp-same{background:var(--ok-soft,rgba(46,125,91,.1));margin:0 -16px;padding-left:16px;padding-right:16px;border-radius:10px;border-top:0}
+.list-btn.has-goal{flex-wrap:wrap;row-gap:8px}
+.goal-line{display:block;flex:0 0 calc(100% + 12px);margin-left:-12px;height:3px;border-radius:2px;background:var(--track);overflow:hidden}
+.goal-line i{display:block;height:100%;background:var(--ok);border-radius:2px}
+.list-btn.has-goal>span:first-child{flex:1 1 0;min-width:0}
