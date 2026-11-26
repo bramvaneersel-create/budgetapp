@@ -424,3 +424,6 @@ h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;le
 @keyframes swr{from{transform:translateX(-24px);opacity:.4}to{transform:none;opacity:1}}
 #plan-swipe.swipe-l>*:not(.month-chips){animation:swl .22s ease-out}
 #plan-swipe.swipe-r>*:not(.month-chips){animation:swr .22s ease-out}
+.lp-head{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--ok);padding:10px 0 2px}
+.lp-head.muted{color:var(--muted)}
+.txr.lp-same{background:var(--ok-soft,rgba(46,125,91,.1));margin:0 -16px;padding-left:16px;padding-right:16px;border-radius:10px;border-top:0}

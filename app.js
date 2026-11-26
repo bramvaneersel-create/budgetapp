@@ -1162,9 +1162,11 @@ function sheetLinkPick(key) {
   const b = kind === 'dyme' ? S.dyme.find(d => d.id === id) : kind === 'line' ? S.lines.find(l => l.id === id) : S.pots.find(p => p.id === id); if (!b) return;
   const y = S.settings.year, items = detailItems(kind, id, b, periods(y), y), me = items.find(t => (t.tid ? 'tx:' + t.tid : 'mv:' + t.mid) === key);
   const sign = me ? Math.sign(me.amt) : Math.sign(o.amt);
-  const cands = items.filter(t => Math.sign(t.amt) === -sign && (t.tid ? 'tx:' + t.tid : 'mv:' + t.mid) !== key).sort((a, c) => c.date.localeCompare(a.date));
+  const myAmt = Math.abs(me ? me.amt : o.amt), same = t => Math.abs(Math.abs(t.amt) - myAmt) < 0.005;
+  // exact hetzelfde bedrag bovenaan, uitgelicht; daarna de rest op datum
+  const cands = items.filter(t => Math.sign(t.amt) === -sign && (t.tid ? 'tx:' + t.tid : 'mv:' + t.mid) !== key).sort((a, c) => (same(c) - same(a)) || c.date.localeCompare(a.date));
   openSheet(sign < 0 ? 'Koppelen aan uitgave' : 'Koppelen aan terugbetaling', `<p class="hint">${sign < 0 ? 'Kies de uitgave die met deze inkomsten (deels) is terugbetaald.' : 'Kies de terugbetaling die bij deze uitgave hoort.'}</p>
-    <div class="card tight">${cands.length ? cands.map(t => { const ck = t.tid ? 'tx:' + t.tid : 'mv:' + t.mid; return `<div class="txr" data-act="link-do" data-a="${key}" data-b="${ck}"><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`; }).join('')
+    <div class="card tight">${cands.length ? cands.map((t, i) => { const ck = t.tid ? 'tx:' + t.tid : 'mv:' + t.mid; return `${same(t) && (i === 0) ? '<div class="lp-head">Zelfde bedrag</div>' : ''}${!same(t) && i > 0 && same(cands[i - 1]) ? '<div class="lp-head muted">Overige</div>' : ''}<div class="txr${same(t) ? ' lp-same' : ''}" data-act="link-do" data-a="${key}" data-b="${ck}"><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`; }).join('')
       : `<div class="empty">${sign < 0 ? 'Geen uitgaven in dit budget om aan te koppelen.' : 'Geen terugbetalingen in dit budget om aan te koppelen.'}</div>`}</div>`, { kind: 'linkpick' });
 }
 function linkBtn(key) {
@@ -1485,6 +1487,7 @@ async function onDymeFile(file) {
     if (rows.length < 2) return toast('Bestand is leeg');
     const hdr = rows[0].map(x => String(x));
     if (isBankHdr(hdr)) return onBankRows(rows);
+    if (guessCol(hdr, /^soort|^type$/) >= 0 && guessCol(hdr, /categor|naam/) >= 0) return onBudgetFile(file);   // budgetsjabloon via de importknop
     return toast('Dit bestand is geen bankexport. Download bij ING je af- en bijschrijvingen als CSV.');
     IMP = { rows, hdr, sign: 'neg', map: {
       date: Math.max(0, guessCol(hdr, /datum|date/)), amt: guessCol(hdr, /^bedrag|^amount|waarde|value/), cat: guessCol(hdr, /^categor|^category/) >= 0 ? guessCol(hdr, /^categor|^category/) : guessCol(hdr, /categor/),
@@ -1648,9 +1651,10 @@ function classify(t, ctx) {
     if (ln) return { cat: credit ? 'Salaris' : 'Vaste lasten - overig', target: 'line:' + ln.id, how: 'herkend', why: `bedrag ${ln.name}` };
   }
   if (t.iban && ctx.own.has(t.iban)) return { cat: 'Uitgesloten overboekingen', how: 'herkend', why: 'eigen rekening' };
-  for (const p of S.pots) if (!p.sys && p.name.length >= 4 && name.includes(p.name.toLowerCase())) return { cat: t.cat, target: 'pot:' + p.id, how: 'herkend', why: 'naam jaarbudget' };
+  for (const p of S.pots) if (!p.sys && p.name.length >= 4 && new RegExp('(^|[^a-zà-ÿ])' + p.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-zà-ÿ])').test(name)) return { cat: t.cat, target: 'pot:' + p.id, how: 'herkend', why: 'naam jaarbudget' };
   if (credit) {
-    if (/salaris|loon|salary|wage/.test(all)) return { cat: 'Salaris', how: 'herkend', why: 'inkomen' };
+    if (/salaris|loon|salary|wage/.test(all)) { const sl = S.lines.find(l => l.type === 'inkomen' && /salaris|loon|salary/i.test(l.name)) || S.lines.find(l => l.type === 'inkomen');
+      return { cat: 'Salaris', target: sl ? 'line:' + sl.id : undefined, how: 'herkend', why: 'inkomen' }; }
     if (/tikkie|betaalverzoek/.test(all)) return { cat: 'Terugbetaling', how: 'herkend', why: 'terugbetaling' };
   }
   const g = nbGuess(ctx.nb, t.desc + ' ' + (t.memo || '')); if (g) return { cat: t.cat, target: g.c, how: 'geleerd', why: 'eerdere keuzes' };
@@ -1697,7 +1701,7 @@ function onBankRows(rows) {
   const dy = S.tx.filter(x => x.src !== 'bank' && x.date >= y0 && x.date <= y1).map(x => x.date).sort().pop();
   const def = dy ? iso(addDays(fromIso(dy), 1)) : y0;
   fresh.sort((a, b) => a.date.localeCompare(b.date));
-  BPRE = { fresh, dup, own, nb, P, y0, y1, dy, from: def < y0 ? y0 : def };
+  BPRE = { fresh, dup, own, nb, P, y0, y1, dy, from: def < y0 ? y0 : def, rows };
   if (fresh[0].date < BPRE.from || fresh[fresh.length - 1].date > y1) return sheetBankFrom();
   bankClassify(fresh);
 }
@@ -1711,7 +1715,9 @@ function sheetBankFrom() {
     ${BPRE.dy ? `<div class="kv"><span>Al eerder ingelezen t/m</span><b>${dLong(fromIso(BPRE.dy))}</b></div>` : ''}</div>
     <label class="fld"><span>Inlezen vanaf</span><input type="date" id="bank-from" data-bfrom="1" value="${BPRE.from}" min="${BPRE.y0}" max="${BPRE.y1}"></label>
     <p class="hint">Alleen transacties in budgetjaar ${y} tellen mee. ${BPRE.dy ? 'Wat al eerder in de app staat, sla je over — anders tellen die uitgaven dubbel.' : 'Kies een latere datum als je oudere transacties niet nodig hebt.'}</p>
-    <button class="btn primary" data-act="bank-from-do" id="bank-from-btn">${n} transacties bekijken</button>`, { kind: 'bankfrom', closeLabel: 'Annuleer' });
+    ${(() => { const ys = [...new Set(f.map(t => +t.date.slice(0, 4)))].filter(v => v !== y), main = ys.sort((a, b) => f.filter(t => +t.date.slice(0, 4) === b).length - f.filter(t => +t.date.slice(0, 4) === a).length)[0];
+      return main && f.filter(t => +t.date.slice(0, 4) === main).length > n ? `<div class="card callout"><b>Deze export is vooral van ${main}</b><div class="sub" style="margin:4px 0 10px">Je budgetjaar staat op ${y}. Wissel naar ${main} om deze transacties in te lezen.</div><button class="btn primary" data-act="bank-switch-year" data-y="${main}" style="margin:0">Wissel naar ${main} en lees in</button></div>` : ''; })()}
+    <button class="btn${n ? ' primary' : ''}" data-act="bank-from-do" id="bank-from-btn"${n ? '' : ' disabled'}>${n} transacties bekijken</button>`, { kind: 'bankfrom', closeLabel: 'Annuleer' });
 }
 function bankClassify(list) {
   const { own, nb, P, dup } = BPRE, fresh = list, skipped = BPRE.fresh.length - list.length;
@@ -2114,6 +2120,7 @@ function typeFromText(s) {
 async function onBudgetFile(file) {
   try {
     const rows = await readTable(file), hdr = rows[0].map(x => String(x));
+    if (isBankHdr(hdr)) return onBankRows(rows);   // bankexport via de budgetknop gekozen: gewoon als bankexport inlezen
     const c = { soort: guessCol(hdr, /^soort|^type/), naam: guessCol(hdr, /categor|naam|^post|^name/), rek: guessCol(hdr, /rekening|account/),
       doel: guessCol(hdr, /^doel|richtlijn|^budget|^bedrag|^target|^goal|^amount/), grens: guessCol(hdr, /grens|max|limiet|^limit/), dyme: guessCol(hdr, /dyme|categorie[eë]n|^categories/),
       mon: MON_NL.map((n, i) => { const a = guessCol(hdr, new RegExp('^' + n)); return a >= 0 ? a : guessCol(hdr, new RegExp('^' + MON_EN[i].toLowerCase())); }) };
@@ -2328,6 +2335,7 @@ const ACT = {
   'sheet-wealth': () => sheetWealth(),
   'bank-toggle': el => { const k = el.dataset.k; BIMP.open[k] = !($(`[data-act=bank-toggle][data-k=${k}] .chev`).textContent === '▾'); sheetBankReview(); },
   'bank-do': () => bankCommit(),
+  'bank-switch-year': el => { const rows = BPRE && BPRE.rows; if (!rows) return; BPRE = null; switchYear(+el.dataset.y); save(); render(); toast(`Budgetjaar ${el.dataset.y}`); onBankRows(rows); },
   'bank-kruis': el => {
     const t = BIMP.items.find(x => x.id === el.dataset.id); if (!t) return;
     addKruis(t); let n = 0;

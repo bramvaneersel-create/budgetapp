@@ -412,5 +412,10 @@ window.I18N_EN = [
   ['Beoordeel elke transactie: kies een budget en een maand en tik op ✓. Alleen afgehandelde transacties worden opgeslagen; de rest blijft bewaard tot je verder gaat.', 'Review every transaction: choose a budget and a month and tap ✓. Only reviewed transactions are saved; the rest is kept until you continue.'],
   ['Opslaan · {} afgehandeld, {} later', 'Save · {} reviewed, {} later'], ['Opslaan · alle {} transacties', 'Save · all {} transactions'],
   // v51: maandkeuze
-  ['{} (nu)', '{} (now)'], ['Andere maand', 'Other month']
+  ['{} (nu)', '{} (now)'], ['Andere maand', 'Other month'],
+  // v52
+  ['Zelfde bedrag', 'Same amount'], ['Overige', 'Other'],
+  // v53: export van ander jaar
+  ['Deze export is vooral van {}', 'This export is mostly from {}'], ['Je budgetjaar staat op {}. Wissel naar {} om deze transacties in te lezen.', 'Your budget year is set to {}. Switch to {} to import these transactions.'],
+  ['Wissel naar {} en lees in', 'Switch to {} and import'], ['Budgetjaar {}', 'Budget year {}']
 ];
