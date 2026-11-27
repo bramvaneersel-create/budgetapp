@@ -539,9 +539,7 @@ function model() {
     planIng: ping, band, dyYtd, vrijExp, lastKas, kasThisPeriod, deposits: sum(pa.sparen),
     ...(() => {
       const beleg = AM.invInleg, koop = sum(S.moves.filter(x => x.kind === 'koop' && x.date.slice(0, 4) === String(y)).map(x => x.amt));
-      const ap = S.pots.find(p => !p.vrij && !p.sys && /huis|aflos|hypothe/i.test(p.name));
-      const aflos = ap ? (potSpent[ap.id] || 0) + (potRem[ap.id] || 0) : 0;
-      return { beleg, koop, aflos, aflosNaam: ap ? ap.name : '', totaalGespaard: (bal - start) + beleg + koop + aflos };
+      return { beleg, koop, totaalGespaard: (bal - start) + beleg + koop };
     })(),
     ...AM, koopSp,
     nAvg, avgTot, avgDy, avgPot, scale, topDown, bottomUp, vrijRem, fcPath, planPath, basePath, periodStart, potVrijK };
@@ -700,6 +698,18 @@ function actionsHtml(withImport) {
     ${withImport ? `<button class="act wide" data-act="pick-dyme"><span class="ic">${ICON.imp}</span><b>Bankexport inlezen<small>${S.lastImport ? 'Laatst: ' + dLong(fromIso(S.lastImport)) + ' · ' + S.tx.length + ' transacties' : 'Nog niets ingelezen'}</small></b></button>` : ''}
   </div>`;
 }
+// zoeken in een lijst mutaties: vergrootglas rechtsboven, filtert de rijen terwijl je typt
+const SRCH_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>';
+const srchBtn = id => `<button class="srch-btn" data-act="srch" data-for="${id}" aria-label="Zoeken">${SRCH_SVG}</button>`;
+function srchFilter(card, q) {
+  const n = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  const words = n(q).trim().split(' ').filter(Boolean); let shown = 0;
+  for (const r of card.querySelectorAll(':scope > .txr, :scope > .mv, :scope > .lgrp')) {
+    const ok = words.every(w => n(r.textContent).includes(w)); r.style.display = ok ? '' : 'none'; if (ok) shown++;
+  }
+  let e = card.querySelector(':scope > .srch-none'); if (!e) { e = document.createElement('div'); e.className = 'empty srch-none'; e.textContent = T('Geen resultaten'); card.appendChild(e); }
+  e.style.display = words.length && !shown ? '' : 'none';
+}
 function header(title, eyebrow) {
   return `<header class="top"><div><div class="eyebrow" aria-hidden="true">&nbsp;</div><h1>${esc(title)}</h1></div></header>` +
     (S.demo ? `<div class="banner"><span>Je bekijkt demogegevens.</span><button data-act="wipe">Wissen</button></div>` : '');
@@ -763,7 +773,6 @@ function renderDash(m) {
     <div class="kv"><span>Groei spaarrekening</span><b class="${m.eind - m.start >= 0 ? '' : 'neg'}">${eurS(m.eind - m.start)}</b></div>
     ${m.belegA.filter(x => x.inleg).map(x => `<div class="kv"><span>Inleg ${esc(x.name)}</span><b>+${eur(x.inleg)}</b></div>`).join('')}
     ${m.belegA.filter(x => x.koop).map(x => `<div class="kv"><span>Gekocht: ${esc(x.name)}</span><b>+${eur(x.koop)}</b></div>`).join('')}
-    ${m.aflos ? `<div class="kv"><span>Extra aflossing (${esc(m.aflosNaam)})</span><b>+${eur(m.aflos)}</b></div>` : ''}
     <div class="kv total"><span>Totaal gespaard dit jaar</span><b class="${m.totaalGespaard >= 0 ? 'pos' : 'neg'}">${eurS(m.totaalGespaard)}</b></div>
     ${m.nAvg ? `<div class="kv"><span>Gem. vrije uitgaven per maand</span><b class="${m.avgTot > sum(m.pl.budgetM) / 12 + 0.5 ? 'neg' : 'pos'}">${eur(m.avgTot)} <small class="sub">/ ${eur(sum(m.pl.budgetM) / 12)}</small></b></div>` : ''}</div>`;
   h += `<div class="card"><div class="row"><div class="lbl">Uitgaven maandbudgetten per maand</div><span class="sub" style="font-size:12px">tik op een maand</span></div>
@@ -969,15 +978,8 @@ function renderSpaar(m) {
     <button class="btn" data-act="sheet-wealth" style="margin-top:12px">Beleggingen beheren</button></div>`;
   }
   if (any) h += `<div class="card"><div class="kv total" style="margin:0;padding:0;border:0"><span>Verwacht vermogen einde jaar</span><b>${eur(m.eind + m.invEnd + m.othEnd)}</b></div></div>`;
-  h += actionsHtml(false);
-  const transfer = spaarPosts().filter(p => +p.doel > 0 && !p.sys);
-  if (transfer.length) h += `<div class="card tight">` + transfer.map(p => `<button class="list-btn" data-act="sheet-uitgave" data-pot="${p.id}"><span>${esc(p.name)} overmaken</span><span class="r">${m.potRem[p.id] ? 'nog ' + eur(m.potRem[p.id]) : 'gedaan'}</span></button>`).join('') + `</div>`;
-  h += `<h2>Uitgegeven dit jaar</h2><div class="card tight">` + S.pots.filter(p => p.acct === 'spaar').map(p => {
-    const s = m.potSpent[p.id] || 0;
-    return `<button class="list-btn" data-act="edit-pot" data-id="${p.id}"><span>${esc(p.name)}</span><span class="r ${p.sys === 'kas' ? (s >= 0 ? 'pos' : 'neg') : ''}">${p.sys === 'kas' ? eurS(s) : eur(s)}${+p.doel ? ` / ${eur(p.doel)}` : ''}</span></button>`;
-  }).join('') + `</div>`;
   const mv = S.moves.filter(x => fromIso(x.date).getFullYear() === m.y).sort((a, b) => b.date.localeCompare(a.date));
-  h += `<h2>Mutaties ${m.y}</h2><div class="card tight">` + (mv.length ? mv.map(x => {
+  h += `<h2 class="h-srch"><span>Mutaties ${m.y}</span>${mv.length ? srchBtn('mv-list') : ''}</h2><div class="card tight" id="mv-list">` + (mv.length ? mv.map(x => {
     const p = S.pots.find(c => c.id === x.pot);
     const ass = x.kind === 'koop' ? S.assets.find(a => a.id === x.asset) : null;
     const title = x.kind === 'koop' ? `Gekocht: ${ass?.name || ''}` : x.kind === 'opname' ? 'Opname naar lopende rekening' : x.kind === 'kas' ? (x.saldo != null ? 'Saldo ingevoerd' : 'Kasverschil') : (p?.name || 'Uitgave');
@@ -1180,7 +1182,7 @@ function sheetBudgetDetail(kind, id, k = null) {
   const row = (t, cls = '') => `<div class="txr${cls}"${t.tid ? ` data-act="edit-tx" data-id="${t.tid}"` : t.mid ? ` data-act="edit-move" data-id="${t.mid}"` : ''}>${cls ? `<span class="lnk">${LINK_SVG}</span>` : ''}<span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))}${t.sub && t.sub !== t.name ? ` · <span translate="no">${esc(t.sub)}</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : eur2(t.amt)}</span><span class="chev">›</span></div>`;
   const rows = list.filter(t => !isKid(t)).map(t => { const ks = (kids.get(keyOf(t)) || []).sort((a, c) => a.date.localeCompare(c.date));
     return ks.length ? `<div class="lgrp">${row(t)}${ks.map(k => row(k, ' linked')).join('')}<div class="lnet">netto ${eur2(t.amt + sum(ks.map(k => k.amt)))}</div></div>` : row(t); });
-  h += `<h2>Transacties (${list.length})</h2><div class="card tight">` + (list.length ? rows.join('')
+  h += `<h2 class="h-srch"><span>Transacties (${list.length})</span>${list.length ? srchBtn('bd-list') : ''}</h2><div class="card tight" id="bd-list">` + (list.length ? rows.join('')
     : `<div class="empty">${kind === 'pot' ? 'Nog geen uitgaven geboekt.' : 'Nog geen transacties — lees een bankexport in.'}</div>`) + `</div>`;
   h += `<button class="btn" data-act="${kind === 'dyme' ? 'edit-dyme' : kind === 'line' ? 'edit-line' : 'edit-pot'}" data-id="${id}">${kind === 'line' ? 'Post aanpassen' : 'Budget aanpassen'}</button>`;
   openSheet(b.name, h, { kind: 'detail' });
@@ -1230,7 +1232,7 @@ function sheetMonthTx(k) {
   openSheet(`Mutaties ${MONF[k]}`, `<div class="card"><div class="kv"><span>${items.length} boekingen · ${dShort(P[k].start)} – ${dShort(P[k].end)}</span><b></b></div>
     <div class="kv"><span>Af</span><b>−${eur2(uit)}</b></div><div class="kv"><span>Bij</span><b class="pos">+${eur2(inn)}</b></div></div>
     <label class="fld"><span>Sorteren</span><select id="mt-sort">${MT_SORT.map(([v, l]) => `<option value="${v}"${v === srt ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-    <div class="card tight">${items.length ? items.map(t => `<div class="txr" ${t.act}><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))} · <span translate="no">${esc(T(t.bud))}</span>${t.note ? ` · <span translate="no">“${esc(t.note)}”</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : '−' + eur2(t.amt)}</span><span class="chev">›</span></div>`).join('')
+    ${items.length ? `<h2 class="h-srch"><span>Boekingen</span>${srchBtn('mt-list')}</h2>` : ''}<div class="card tight" id="mt-list">${items.length ? items.map(t => `<div class="txr" ${t.act}><span class="t"><b translate="no">${esc(t.name)}</b><span>${dShort(fromIso(t.date))} · <span translate="no">${esc(T(t.bud))}</span>${t.note ? ` · <span translate="no">“${esc(t.note)}”</span>` : ''}</span></span><span class="a ${t.amt < 0 ? 'pos' : ''}">${t.amt < 0 ? '+' + eur2(-t.amt) : '−' + eur2(t.amt)}</span><span class="chev">›</span></div>`).join('')
       : '<div class="empty">Nog geen boekingen in deze maand</div>'}</div>`, { kind: 'monthtx' });
 }
 
@@ -1379,7 +1381,7 @@ function sheetPots() {
       <button class="mv-btn" data-act="pot-up" data-id="${p.id}" ${i === 0 ? 'disabled' : ''} aria-label="Omhoog">▲</button>
       <button class="mv-btn" data-act="pot-down" data-id="${p.id}" ${i === S.savPots.length - 1 ? 'disabled' : ''} aria-label="Omlaag">▼</button></div>`).join('') +
     `<button class="list-btn add-row" data-act="edit-savpot" data-id=""><span>+ Sub-spaarrekening toevoegen</span><span class="r"></span></button></div>
-    <p class="hint">Volgorde = prioriteit. Neemt het saldo af door een opname of uitgave, dan gaat het geld eerst uit pot 1, daarna uit pot 2, enzovoort. Uitgaven die bij een pot horen (zoals de aflossing uit de pot Huis) gaan altijd uit die pot.</p>`, { kind: 'pots' });
+    <p class="hint">Volgorde = prioriteit. Neemt het saldo af door een opname of uitgave, dan gaat het geld eerst uit pot 1, daarna uit pot 2, enzovoort. Uitgaven die bij een sub-spaarrekening horen gaan altijd uit die sub-spaarrekening.</p>`, { kind: 'pots' });
 }
 const SORT_OPTS = [['groot', 'Omvang'], ['naam', 'A–Z'], ['soort', 'Soort']];
 function dymeCats() { const c = {}; for (const t of S.tx) { c[t.cat] = c[t.cat] || { n: 0, amt: 0, sup: t.sup }; c[t.cat].n++; c[t.cat].amt += t.amt; } return c; }
@@ -2403,6 +2405,15 @@ const ACT = {
   'bank-sim-do': () => bankSimDone(true),
   'bank-sim-skip': () => bankSimDone(false),
   'edit-tx': el => sheetTx(el.dataset.id),
+  'srch': el => {
+    const card = document.getElementById(el.dataset.for); if (!card) return;
+    let box = card.querySelector(':scope > .srch-box');
+    if (box) { box.remove(); srchFilter(card, ''); el.classList.remove('on'); return; }
+    box = document.createElement('div'); box.className = 'srch-box';
+    box.innerHTML = `<input type="search" class="srch-in" placeholder="${esc(T('Zoeken…'))}" autocomplete="off" enterkeyhint="search">`;
+    card.prepend(box); el.classList.add('on');
+    const inp = box.firstChild; inp.addEventListener('input', () => srchFilter(card, inp.value)); inp.focus();
+  },
   'extra-toggle': () => { ui.extraOpen = !ui.extraOpen; render(); },
   'sub-toggle': () => { ui.subOpen = !ui.subOpen; render(); },
   'month-tx': el => sheetMonthTx(+el.dataset.k),
