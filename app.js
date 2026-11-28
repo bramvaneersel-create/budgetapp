@@ -1799,7 +1799,7 @@ function onBankRows(rows) {
   if (!fresh.length) { if (S.pending && S.pending.items.length) return bankResume(); return toast('Geen nieuwe transacties — alles was al ingelezen'); }
   // Periode kiezen: alleen het budgetjaar, en niet de periode die al via Dyme is ingelezen (anders dubbel)
   const y = S.settings.year, y0 = `${y}-01-01`, y1 = `${y}-12-31`;
-  const dy = S.tx.filter(x => x.src !== 'bank' && x.date >= y0 && x.date <= y1).map(x => x.date).sort().pop();
+  const dy = S.tx.filter(x => x.src !== 'bank' && x.src !== 'hand' && x.date >= y0 && x.date <= y1).map(x => x.date).sort().pop();
   const def = dy ? iso(addDays(fromIso(dy), 1)) : y0;
   fresh.sort((a, b) => a.date.localeCompare(b.date));
   BPRE = { fresh, dup, own, nb, P, y0, y1, dy, from: def < y0 ? y0 : def, rows };
@@ -2785,5 +2785,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadSW && !reloaded) { reloaded = true; location.reload(); } });
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
 }
-window.__jb = { parseNum, parseDate, model, periods, payday, plan, get S() { return S; } };
+window.__jb = { parseNum, parseDate, model, periods, payday, plan, get S() { return S; }, onDymeFile, get BIMP() { return BIMP; }, get BPRE() { return BPRE; } };
 })();
