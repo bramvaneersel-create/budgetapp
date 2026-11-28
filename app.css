@@ -442,3 +442,8 @@ h2.h-srch{display:flex;justify-content:space-between;align-items:center}
 .grp-tag{color:var(--ink2,inherit)}
 .grp-none{padding:12px 0;color:var(--faint)}
 .grp-pick .t{flex:1}
+.b-orig{display:block;font-size:12px;color:var(--faint);margin-top:1px}
+.mb-sub .yr{white-space:nowrap}
+.mb-sub .yr.ok{color:var(--ok)}
+.mb-sub .yr.warn{color:var(--over);font-weight:600}
+.ov-card .list-btn.grp[disabled]{opacity:1;color:var(--muted)}
